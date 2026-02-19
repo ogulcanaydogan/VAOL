@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"time"
 
-	vaolcrypto "github.com/yapay-ai/vaol/pkg/crypto"
+	vaolcrypto "github.com/ogulcanaydogan/vaol/pkg/crypto"
 )
 
 // ProofType distinguishes between inclusion and consistency proofs.

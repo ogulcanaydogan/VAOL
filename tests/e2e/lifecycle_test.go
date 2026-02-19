@@ -10,13 +10,13 @@ import (
 	"testing"
 	"time"
 
-	"github.com/yapay-ai/vaol/pkg/crypto"
-	"github.com/yapay-ai/vaol/pkg/export"
-	"github.com/yapay-ai/vaol/pkg/merkle"
-	"github.com/yapay-ai/vaol/pkg/record"
-	"github.com/yapay-ai/vaol/pkg/signer"
-	"github.com/yapay-ai/vaol/pkg/store"
-	"github.com/yapay-ai/vaol/pkg/verifier"
+	"github.com/ogulcanaydogan/vaol/pkg/crypto"
+	"github.com/ogulcanaydogan/vaol/pkg/export"
+	"github.com/ogulcanaydogan/vaol/pkg/merkle"
+	"github.com/ogulcanaydogan/vaol/pkg/record"
+	"github.com/ogulcanaydogan/vaol/pkg/signer"
+	"github.com/ogulcanaydogan/vaol/pkg/store"
+	"github.com/ogulcanaydogan/vaol/pkg/verifier"
 )
 
 // TestFullRecordLifecycle exercises the complete happy path:

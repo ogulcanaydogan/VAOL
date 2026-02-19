@@ -5,9 +5,9 @@ import (
 	"fmt"
 	"net/http"
 
-	"github.com/yapay-ai/vaol/pkg/auth"
-	"github.com/yapay-ai/vaol/pkg/merkle"
-	"github.com/yapay-ai/vaol/pkg/store"
+	"github.com/ogulcanaydogan/vaol/pkg/auth"
+	"github.com/ogulcanaydogan/vaol/pkg/merkle"
+	"github.com/ogulcanaydogan/vaol/pkg/store"
 )
 
 func (s *Server) authenticateRequest(r *http.Request) (*auth.Claims, error) {

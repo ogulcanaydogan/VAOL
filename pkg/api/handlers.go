@@ -11,14 +11,14 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	vaolcrypto "github.com/yapay-ai/vaol/pkg/crypto"
-	"github.com/yapay-ai/vaol/pkg/export"
-	"github.com/yapay-ai/vaol/pkg/merkle"
-	"github.com/yapay-ai/vaol/pkg/policy"
-	"github.com/yapay-ai/vaol/pkg/record"
-	"github.com/yapay-ai/vaol/pkg/signer"
-	"github.com/yapay-ai/vaol/pkg/store"
-	"github.com/yapay-ai/vaol/pkg/verifier"
+	vaolcrypto "github.com/ogulcanaydogan/vaol/pkg/crypto"
+	"github.com/ogulcanaydogan/vaol/pkg/export"
+	"github.com/ogulcanaydogan/vaol/pkg/merkle"
+	"github.com/ogulcanaydogan/vaol/pkg/policy"
+	"github.com/ogulcanaydogan/vaol/pkg/record"
+	"github.com/ogulcanaydogan/vaol/pkg/signer"
+	"github.com/ogulcanaydogan/vaol/pkg/store"
+	"github.com/ogulcanaydogan/vaol/pkg/verifier"
 )
 
 func (s *Server) handleAppendRecord(w http.ResponseWriter, r *http.Request) {

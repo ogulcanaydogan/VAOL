@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"testing"
 
-	vaolcrypto "github.com/yapay-ai/vaol/pkg/crypto"
+	vaolcrypto "github.com/ogulcanaydogan/vaol/pkg/crypto"
 )
 
 func TestNewTreeEmpty(t *testing.T) {

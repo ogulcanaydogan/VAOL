@@ -3,7 +3,7 @@
 replicaCount: 1
 
 image:
-  repository: ghcr.io/yapay-ai/vaol-server
+  repository: ghcr.io/ogulcanaydogan/vaol-server
   pullPolicy: IfNotPresent
   tag: ""  # Defaults to Chart.appVersion
 
@@ -74,7 +74,7 @@ server:
 proxy:
   enabled: false
   image:
-    repository: ghcr.io/yapay-ai/vaol-proxy
+    repository: ghcr.io/ogulcanaydogan/vaol-proxy
     pullPolicy: IfNotPresent
     tag: ""
   port: 8443

@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/yapay-ai/vaol/pkg/merkle"
-	"github.com/yapay-ai/vaol/pkg/signer"
+	"github.com/ogulcanaydogan/vaol/pkg/merkle"
+	"github.com/ogulcanaydogan/vaol/pkg/signer"
 )
 
 func TestNewBundle(t *testing.T) {

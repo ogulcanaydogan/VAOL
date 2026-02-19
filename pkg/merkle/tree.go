@@ -7,7 +7,7 @@ import (
 	"math/bits"
 	"sync"
 
-	vaolcrypto "github.com/yapay-ai/vaol/pkg/crypto"
+	vaolcrypto "github.com/ogulcanaydogan/vaol/pkg/crypto"
 )
 
 // Tree is an in-memory append-only Merkle tree.

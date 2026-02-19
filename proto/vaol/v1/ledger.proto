@@ -2,7 +2,7 @@ syntax = "proto3";
 
 package vaol.v1;
 
-option go_package = "github.com/yapay-ai/vaol/gen/vaol/v1;vaolv1";
+option go_package = "github.com/ogulcanaydogan/vaol/gen/vaol/v1;vaolv1";
 
 import "google/protobuf/timestamp.proto";
 

@@ -9,7 +9,7 @@ import (
 	"net/http"
 	"time"
 
-	vaolcrypto "github.com/yapay-ai/vaol/pkg/crypto"
+	vaolcrypto "github.com/ogulcanaydogan/vaol/pkg/crypto"
 )
 
 // AnchorClient persists a signed checkpoint digest to an external witness.

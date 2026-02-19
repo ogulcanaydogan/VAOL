@@ -7,7 +7,7 @@ import (
 	"strconv"
 	"strings"
 
-	vaolcrypto "github.com/yapay-ai/vaol/pkg/crypto"
+	vaolcrypto "github.com/ogulcanaydogan/vaol/pkg/crypto"
 )
 
 // integrityComputedFields are the integrity sub-fields that are excluded from

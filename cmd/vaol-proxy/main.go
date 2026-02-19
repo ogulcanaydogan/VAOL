@@ -19,8 +19,8 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	vaolcrypto "github.com/yapay-ai/vaol/pkg/crypto"
-	"github.com/yapay-ai/vaol/pkg/record"
+	vaolcrypto "github.com/ogulcanaydogan/vaol/pkg/crypto"
+	"github.com/ogulcanaydogan/vaol/pkg/record"
 )
 
 func main() {

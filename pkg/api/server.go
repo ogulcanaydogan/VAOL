@@ -10,12 +10,12 @@ import (
 	"sync"
 	"time"
 
-	"github.com/yapay-ai/vaol/pkg/auth"
-	"github.com/yapay-ai/vaol/pkg/merkle"
-	"github.com/yapay-ai/vaol/pkg/policy"
-	"github.com/yapay-ai/vaol/pkg/signer"
-	"github.com/yapay-ai/vaol/pkg/store"
-	"github.com/yapay-ai/vaol/pkg/verifier"
+	"github.com/ogulcanaydogan/vaol/pkg/auth"
+	"github.com/ogulcanaydogan/vaol/pkg/merkle"
+	"github.com/ogulcanaydogan/vaol/pkg/policy"
+	"github.com/ogulcanaydogan/vaol/pkg/signer"
+	"github.com/ogulcanaydogan/vaol/pkg/store"
+	"github.com/ogulcanaydogan/vaol/pkg/verifier"
 )
 
 // Config holds the server configuration.

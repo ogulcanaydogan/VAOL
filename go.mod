@@ -1,4 +1,4 @@
-module github.com/yapay-ai/vaol
+module github.com/ogulcanaydogan/vaol
 
 go 1.23.6
 

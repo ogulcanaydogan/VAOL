@@ -39,4 +39,4 @@ Initial public release of the Verifiable AI Output Ledger.
 - Startup Merkle rebuild with checkpoint/root validation.
 - Tenant-bound API access with cross-tenant rejection.
 
-[0.1.0]: https://github.com/yapay-ai/vaol/releases/tag/v0.1.0
+[0.1.0]: https://github.com/ogulcanaydogan/vaol/releases/tag/v0.1.0

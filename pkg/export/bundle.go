@@ -6,8 +6,8 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/yapay-ai/vaol/pkg/merkle"
-	"github.com/yapay-ai/vaol/pkg/signer"
+	"github.com/ogulcanaydogan/vaol/pkg/merkle"
+	"github.com/ogulcanaydogan/vaol/pkg/signer"
 )
 
 // Bundle is a portable, self-contained audit evidence package.

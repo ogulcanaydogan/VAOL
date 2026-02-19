@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/yapay-ai/vaol/pkg/signer"
+	"github.com/ogulcanaydogan/vaol/pkg/signer"
 )
 
 // CheckpointSigner creates signed Merkle checkpoints.

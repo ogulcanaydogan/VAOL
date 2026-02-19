@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/yapay-ai/vaol/pkg/signer"
+	"github.com/ogulcanaydogan/vaol/pkg/signer"
 )
 
 func TestKeysGenerateWritesPrivateAndPublicKeys(t *testing.T) {

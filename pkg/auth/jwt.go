@@ -18,7 +18,7 @@ import (
 	"strings"
 	"time"
 
-	vaolcrypto "github.com/yapay-ai/vaol/pkg/crypto"
+	vaolcrypto "github.com/ogulcanaydogan/vaol/pkg/crypto"
 )
 
 // Mode controls API authentication behavior.

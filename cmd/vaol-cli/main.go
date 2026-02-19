@@ -9,9 +9,9 @@ import (
 	"os"
 
 	"github.com/spf13/cobra"
-	"github.com/yapay-ai/vaol/pkg/export"
-	"github.com/yapay-ai/vaol/pkg/signer"
-	"github.com/yapay-ai/vaol/pkg/verifier"
+	"github.com/ogulcanaydogan/vaol/pkg/export"
+	"github.com/ogulcanaydogan/vaol/pkg/signer"
+	"github.com/ogulcanaydogan/vaol/pkg/verifier"
 )
 
 var version = "0.1.0"

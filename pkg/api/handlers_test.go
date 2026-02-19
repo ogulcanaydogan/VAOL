@@ -13,12 +13,12 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/yapay-ai/vaol/pkg/api"
-	"github.com/yapay-ai/vaol/pkg/merkle"
-	"github.com/yapay-ai/vaol/pkg/policy"
-	"github.com/yapay-ai/vaol/pkg/record"
-	"github.com/yapay-ai/vaol/pkg/signer"
-	"github.com/yapay-ai/vaol/pkg/store"
+	"github.com/ogulcanaydogan/vaol/pkg/api"
+	"github.com/ogulcanaydogan/vaol/pkg/merkle"
+	"github.com/ogulcanaydogan/vaol/pkg/policy"
+	"github.com/ogulcanaydogan/vaol/pkg/record"
+	"github.com/ogulcanaydogan/vaol/pkg/signer"
+	"github.com/ogulcanaydogan/vaol/pkg/store"
 )
 
 type proofFailStore struct {

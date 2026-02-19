@@ -10,10 +10,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/yapay-ai/vaol/pkg/export"
-	"github.com/yapay-ai/vaol/pkg/merkle"
-	"github.com/yapay-ai/vaol/pkg/record"
-	"github.com/yapay-ai/vaol/pkg/signer"
+	"github.com/ogulcanaydogan/vaol/pkg/export"
+	"github.com/ogulcanaydogan/vaol/pkg/merkle"
+	"github.com/ogulcanaydogan/vaol/pkg/record"
+	"github.com/ogulcanaydogan/vaol/pkg/signer"
 )
 
 // Result represents the outcome of verifying a single record.

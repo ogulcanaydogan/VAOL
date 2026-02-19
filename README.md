@@ -1,9 +1,9 @@
 # VAOL — Verifiable AI Output Ledger
 
-[![CI](https://github.com/yapay-ai/vaol/actions/workflows/ci.yml/badge.svg)](https://github.com/yapay-ai/vaol/actions/workflows/ci.yml)
-[![Go Report Card](https://goreportcard.com/badge/github.com/yapay-ai/vaol)](https://goreportcard.com/report/github.com/yapay-ai/vaol)
+[![CI](https://github.com/ogulcanaydogan/vaol/actions/workflows/ci.yml/badge.svg)](https://github.com/ogulcanaydogan/vaol/actions/workflows/ci.yml)
+[![Go Report Card](https://goreportcard.com/badge/github.com/ogulcanaydogan/vaol)](https://goreportcard.com/report/github.com/ogulcanaydogan/vaol)
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
-[![Go Version](https://img.shields.io/github/go-mod/go-version/yapay-ai/vaol)](go.mod)
+[![Go Version](https://img.shields.io/github/go-mod/go-version/ogulcanaydogan/vaol)](go.mod)
 
 A cryptographically verifiable, append-only ledger for AI/LLM inference decisions. VAOL provides tamper-evident audit trails for regulated industries where organizations must prove the provenance, policy compliance, and integrity of every AI-generated output.
 
