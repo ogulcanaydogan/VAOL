@@ -394,7 +394,9 @@ func TestPolicyContextPreservation(t *testing.T) {
 			// Extract and verify the policy context is preserved
 			extracted, _ := signer.ExtractPayload(env)
 			var restored record.DecisionRecord
-			json.Unmarshal(extracted, &restored)
+			if err := json.Unmarshal(extracted, &restored); err != nil {
+				t.Fatalf("unmarshal restored record: %v", err)
+			}
 
 			if restored.PolicyContext.PolicyDecision != decision {
 				t.Errorf("policy decision = %s, want %s", restored.PolicyContext.PolicyDecision, decision)
