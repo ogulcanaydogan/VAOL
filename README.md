@@ -1,5 +1,10 @@
 # VAOL — Verifiable AI Output Ledger
 
+[![CI](https://github.com/yapay-ai/vaol/actions/workflows/ci.yml/badge.svg)](https://github.com/yapay-ai/vaol/actions/workflows/ci.yml)
+[![Go Report Card](https://goreportcard.com/badge/github.com/yapay-ai/vaol)](https://goreportcard.com/report/github.com/yapay-ai/vaol)
+[![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
+[![Go Version](https://img.shields.io/github/go-mod/go-version/yapay-ai/vaol)](go.mod)
+
 A cryptographically verifiable, append-only ledger for AI/LLM inference decisions. VAOL provides tamper-evident audit trails for regulated industries where organizations must prove the provenance, policy compliance, and integrity of every AI-generated output.
 
 ## What VAOL Does
@@ -75,6 +80,33 @@ response = wrapped.chat.completions.create(
 )
 # DecisionRecord automatically emitted to VAOL with prompt hash,
 # output hash, model identity, and policy context.
+```
+
+### TypeScript SDK
+
+```bash
+npm install @vaol/sdk
+```
+
+```typescript
+import OpenAI from "openai";
+import { VAOLClient, instrumentOpenAI } from "@vaol/sdk";
+
+const openai = new OpenAI();
+const vaol = new VAOLClient({ baseURL: "http://localhost:8080" });
+
+// Instrument: every LLM call now emits a DecisionRecord
+instrumentOpenAI(openai, {
+  client: vaol,
+  tenantID: "my-org",
+  subject: "my-service",
+});
+
+const response = await openai.chat.completions.create({
+  model: "gpt-4o",
+  messages: [{ role: "user", content: "Summarize this patient report." }],
+});
+// DecisionRecord automatically emitted to VAOL
 ```
 
 ### CLI
@@ -209,7 +241,7 @@ vaol/
 │   ├── crypto/          # SHA-256, age encryption
 │   └── api/             # REST API server
 ├── sdk/python/          # Python SDK
-├── sdk/typescript/      # TypeScript SDK (planned)
+├── sdk/typescript/      # TypeScript SDK
 ├── policies/            # OPA/Rego example policies
 ├── schemas/v1/          # JSON Schema for DecisionRecord
 ├── deploy/              # Docker Compose + Helm charts
@@ -227,6 +259,17 @@ VAOL provides four layers of cryptographic verification:
 4. **Merkle Inclusion** — Record's inclusion proof valid against tree root
 
 The `vaol verify` CLI command and the `/v1/verify` API perform all four checks.
+
+## Documentation
+
+- [Architecture](docs/architecture.md)
+- [API Reference](docs/api-reference.md)
+- [Cryptographic Design](docs/crypto-design.md)
+- [Threat Model](docs/threat-model.md)
+- [Auditor Guide](docs/auditor-guide.md)
+- [Deployment Guide](docs/deployment-production-profile.md)
+- [Changelog](CHANGELOG.md)
+- [Examples](examples/)
 
 ## License
 

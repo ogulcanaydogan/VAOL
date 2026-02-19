@@ -1,6 +1,9 @@
 # Binaries
 /bin/
 /dist/
+/vaol-server
+/vaol-proxy
+/vaol-cli
 *.exe
 *.exe~
 *.dll
