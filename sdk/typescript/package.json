@@ -1,0 +1,45 @@
+{
+  "name": "@vaol/sdk",
+  "version": "0.1.0",
+  "description": "TypeScript SDK for VAOL — Verifiable AI Output Ledger",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "lint": "eslint src/ tests/",
+    "clean": "rm -rf dist"
+  },
+  "keywords": [
+    "vaol",
+    "ai",
+    "audit",
+    "ledger",
+    "verifiable",
+    "compliance"
+  ],
+  "license": "Apache-2.0",
+  "dependencies": {},
+  "devDependencies": {
+    "typescript": "^5.4.0",
+    "vitest": "^2.0.0",
+    "@types/node": "^22.0.0",
+    "eslint": "^9.0.0"
+  },
+  "peerDependencies": {
+    "openai": ">=4.0.0"
+  },
+  "peerDependenciesMeta": {
+    "openai": {
+      "optional": true
+    }
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ]
+}

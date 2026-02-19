@@ -1,0 +1,308 @@
+package verifier
+
+import (
+	"context"
+	"encoding/json"
+	"testing"
+
+	"github.com/yapay-ai/vaol/pkg/export"
+	"github.com/yapay-ai/vaol/pkg/merkle"
+	"github.com/yapay-ai/vaol/pkg/record"
+	"github.com/yapay-ai/vaol/pkg/signer"
+)
+
+func TestVerifyValidEnvelope(t *testing.T) {
+	s, _ := signer.GenerateEd25519Signer()
+	rec := makeTestDecisionRecord()
+
+	// Compute record hash (uses canonical form internally)
+	hash, err := record.ComputeRecordHash(rec)
+	if err != nil {
+		t.Fatalf("ComputeRecordHash error: %v", err)
+	}
+	rec.Integrity.RecordHash = hash
+
+	// Sign the full record (with record_hash set) — this is the DSSE payload
+	payload, err := json.Marshal(rec)
+	if err != nil {
+		t.Fatalf("Marshal error: %v", err)
+	}
+
+	env, err := signer.SignEnvelope(context.Background(), payload, s)
+	if err != nil {
+		t.Fatalf("SignEnvelope error: %v", err)
+	}
+
+	// Verify
+	v := New(signer.NewEd25519Verifier(s.PublicKey()))
+	result, err := v.VerifyEnvelope(context.Background(), env)
+	if err != nil {
+		t.Fatalf("VerifyEnvelope error: %v", err)
+	}
+
+	if !result.Valid {
+		for _, check := range result.Checks {
+			if !check.Passed {
+				t.Errorf("check %q failed: %s", check.Name, check.Error)
+			}
+		}
+		t.Fatal("envelope should be valid")
+	}
+}
+
+func TestVerifyTamperedPayload(t *testing.T) {
+	s, _ := signer.GenerateEd25519Signer()
+	rec := makeTestDecisionRecord()
+
+	hash, _ := record.ComputeRecordHash(rec)
+	rec.Integrity.RecordHash = hash
+
+	payload, _ := json.Marshal(rec)
+	env, _ := signer.SignEnvelope(context.Background(), payload, s)
+
+	// Tamper: change the model name in the payload
+	rec.Model.Name = "tampered-model"
+	tampered, _ := json.Marshal(rec)
+	env.Payload = signer.TestB64Encode(tampered)
+
+	v := New(signer.NewEd25519Verifier(s.PublicKey()))
+	result, _ := v.VerifyEnvelope(context.Background(), env)
+
+	if result.Valid {
+		t.Error("tampered envelope should not be valid")
+	}
+
+	// Find which check failed
+	sigFailed := false
+	for _, check := range result.Checks {
+		if check.Name == "signature" && !check.Passed {
+			sigFailed = true
+		}
+	}
+	if !sigFailed {
+		t.Error("signature check should fail for tampered payload")
+	}
+}
+
+func TestVerifyWrongRecordHash(t *testing.T) {
+	s, _ := signer.GenerateEd25519Signer()
+	rec := makeTestDecisionRecord()
+
+	// Set wrong hash deliberately
+	rec.Integrity.RecordHash = "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+
+	// Sign the full record with the wrong hash in the payload
+	payload, _ := json.Marshal(rec)
+	env, _ := signer.SignEnvelope(context.Background(), payload, s)
+
+	v := New(signer.NewEd25519Verifier(s.PublicKey()))
+	result, _ := v.VerifyEnvelope(context.Background(), env)
+
+	hashFailed := false
+	for _, check := range result.Checks {
+		if check.Name == "record_hash" && !check.Passed {
+			hashFailed = true
+		}
+	}
+	if !hashFailed {
+		t.Error("record_hash check should fail for wrong hash")
+	}
+}
+
+func TestVerifyChainIntact(t *testing.T) {
+	records := make([]*record.DecisionRecord, 3)
+	for i := 0; i < 3; i++ {
+		rec := makeTestDecisionRecord()
+		h, _ := record.ComputeRecordHash(rec)
+		rec.Integrity.RecordHash = h
+		if i > 0 {
+			rec.Integrity.PreviousRecordHash = records[i-1].Integrity.RecordHash
+		}
+		records[i] = rec
+	}
+
+	v := New()
+	check, err := v.VerifyChain(records)
+	if err != nil {
+		t.Fatalf("VerifyChain error: %v", err)
+	}
+	if !check.Passed {
+		t.Errorf("VerifyChain should pass: %s", check.Error)
+	}
+}
+
+func TestVerifyChainBroken(t *testing.T) {
+	records := make([]*record.DecisionRecord, 3)
+	for i := 0; i < 3; i++ {
+		rec := makeTestDecisionRecord()
+		h, _ := record.ComputeRecordHash(rec)
+		rec.Integrity.RecordHash = h
+		if i > 0 {
+			rec.Integrity.PreviousRecordHash = records[i-1].Integrity.RecordHash
+		}
+		records[i] = rec
+	}
+
+	// Break the chain at record 2
+	records[2].Integrity.PreviousRecordHash = "sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+
+	v := New()
+	check, _ := v.VerifyChain(records)
+	if check.Passed {
+		t.Error("VerifyChain should fail for broken chain")
+	}
+}
+
+func TestVerifyChainTamperedRecord(t *testing.T) {
+	rec := makeTestDecisionRecord()
+	h, _ := record.ComputeRecordHash(rec)
+	rec.Integrity.RecordHash = h
+
+	// Tamper after hashing
+	rec.Model.Name = "tampered"
+
+	v := New()
+	check, _ := v.VerifyChain([]*record.DecisionRecord{rec})
+	if check.Passed {
+		t.Error("VerifyChain should detect tampered record hash")
+	}
+}
+
+func TestVerifyEmptyChain(t *testing.T) {
+	v := New()
+	check, _ := v.VerifyChain(nil)
+	if !check.Passed {
+		t.Error("empty chain should pass")
+	}
+}
+
+func TestVerifyEnvelopeStrictProfileRequiresPolicyHash(t *testing.T) {
+	s, _ := signer.GenerateEd25519Signer()
+	rec := makeTestDecisionRecord()
+	hash, _ := record.ComputeRecordHash(rec)
+	rec.Integrity.RecordHash = hash
+	payload, _ := json.Marshal(rec)
+	env, _ := signer.SignEnvelope(context.Background(), payload, s)
+
+	v := New(signer.NewEd25519Verifier(s.PublicKey()))
+	result, err := v.VerifyEnvelopeWithProfile(context.Background(), env, ProfileStrict)
+	if err != nil {
+		t.Fatalf("VerifyEnvelopeWithProfile error: %v", err)
+	}
+	if result.Valid {
+		t.Fatal("strict profile should fail when policy_hash is missing")
+	}
+}
+
+func TestVerifyEnvelopeFIPSRejectsEd25519(t *testing.T) {
+	s, _ := signer.GenerateEd25519Signer()
+	rec := makeTestDecisionRecord()
+	rec.PolicyContext.PolicyHash = "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	rec.PolicyContext.PolicyBundleID = "bundle/v1"
+	rec.Integrity.PreviousRecordHash = "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+	rec.Integrity.MerkleRoot = "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+	rec.Integrity.MerkleTreeSize = 1
+	rec.Integrity.InclusionProof = &record.InclusionProof{
+		LeafIndex: 0,
+		Hashes:    []string{},
+	}
+	hash, _ := record.ComputeRecordHash(rec)
+	rec.Integrity.RecordHash = hash
+	payload, _ := json.Marshal(rec)
+	env, _ := signer.SignEnvelope(context.Background(), payload, s)
+
+	v := New(signer.NewEd25519Verifier(s.PublicKey()))
+	result, err := v.VerifyEnvelopeWithProfile(context.Background(), env, ProfileFIPS)
+	if err != nil {
+		t.Fatalf("VerifyEnvelopeWithProfile error: %v", err)
+	}
+	if result.Valid {
+		t.Fatal("fips profile should fail for ed25519 signatures")
+	}
+}
+
+func TestVerifyEnvelopeStrictRequiresRekorForSigstore(t *testing.T) {
+	s, _ := signer.GenerateEd25519Signer()
+	rec := makeTestDecisionRecord()
+	rec.PolicyContext.PolicyHash = "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	rec.PolicyContext.PolicyBundleID = "bundle/v1"
+	rec.Integrity.PreviousRecordHash = "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+	rec.Integrity.MerkleRoot = "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+	rec.Integrity.MerkleTreeSize = 1
+	rec.Integrity.InclusionProof = &record.InclusionProof{
+		LeafIndex: 0,
+		Hashes:    []string{},
+	}
+	hash, _ := record.ComputeRecordHash(rec)
+	rec.Integrity.RecordHash = hash
+	payload, _ := json.Marshal(rec)
+	env, _ := signer.SignEnvelope(context.Background(), payload, s)
+	env.Signatures[0].KeyID = "fulcio:https://issuer.example::svc"
+	env.Signatures[0].RekorEntryID = ""
+
+	v := New(signer.NewEd25519Verifier(s.PublicKey()))
+	result, err := v.VerifyEnvelopeWithProfile(context.Background(), env, ProfileStrict)
+	if err != nil {
+		t.Fatalf("VerifyEnvelopeWithProfile error: %v", err)
+	}
+	if result.Valid {
+		t.Fatal("strict profile should fail when Sigstore signature lacks rekor_entry_id")
+	}
+}
+
+func TestVerifyBundleBasic(t *testing.T) {
+	s, _ := signer.GenerateEd25519Signer()
+	v := New(signer.NewEd25519Verifier(s.PublicKey()))
+
+	rec1 := makeTestDecisionRecord()
+	rec1.PolicyContext.PolicyHash = "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	h1, _ := record.ComputeRecordHash(rec1)
+	rec1.Integrity.RecordHash = h1
+	payload1, _ := json.Marshal(rec1)
+	env1, _ := signer.SignEnvelope(context.Background(), payload1, s)
+
+	rec2 := makeTestDecisionRecord()
+	rec2.PolicyContext.PolicyHash = "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	rec2.Integrity.PreviousRecordHash = h1
+	h2, _ := record.ComputeRecordHash(rec2)
+	rec2.Integrity.RecordHash = h2
+	payload2, _ := json.Marshal(rec2)
+	env2, _ := signer.SignEnvelope(context.Background(), payload2, s)
+
+	tree := merkle.New()
+	leaf0 := tree.Append([]byte(h1))
+	leaf1 := tree.Append([]byte(h2))
+	proof0, _ := tree.InclusionProof(leaf0, tree.Size())
+	proof1, _ := tree.InclusionProof(leaf1, tree.Size())
+
+	cpSigner := merkle.NewCheckpointSigner(s)
+	checkpoint, _ := cpSigner.SignCheckpoint(context.Background(), tree)
+
+	bundle := export.NewBundle(export.BundleFilter{TenantID: "test-tenant"})
+	bundle.AddRecord(export.BundleRecord{SequenceNumber: 0, Envelope: env1, InclusionProof: proof0})
+	bundle.AddRecord(export.BundleRecord{SequenceNumber: 1, Envelope: env2, InclusionProof: proof1})
+	bundle.AddCheckpoint(export.BundleCheckpoint{Checkpoint: checkpoint})
+	bundle.Finalize()
+
+	result, err := v.VerifyBundle(context.Background(), bundle, ProfileBasic)
+	if err != nil {
+		t.Fatalf("VerifyBundle error: %v", err)
+	}
+	if result.Summary != "VERIFICATION PASSED" {
+		t.Fatalf("expected VERIFICATION PASSED, got %s", result.Summary)
+	}
+}
+
+func makeTestDecisionRecord() *record.DecisionRecord {
+	rec := record.New()
+	rec.Identity.TenantID = "test-tenant"
+	rec.Identity.Subject = "test-user"
+	rec.Model.Provider = "openai"
+	rec.Model.Name = "gpt-4o"
+	rec.PromptContext.UserPromptHash = "sha256:abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789"
+	rec.PolicyContext.PolicyDecision = record.PolicyAllow
+	rec.Output.OutputHash = "sha256:1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef"
+	rec.Output.Mode = record.OutputModeHashOnly
+	rec.Integrity.RecordHash = "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+	return rec
+}

@@ -1,0 +1,144 @@
+{{- $isProd := eq .Values.profile.mode "production" -}}
+{{- $authMode := ternary .Values.profile.production.authMode .Values.server.authMode $isProd -}}
+{{- $policyMode := ternary .Values.profile.production.policyMode .Values.server.policyMode $isProd -}}
+{{- $anchorMode := ternary .Values.profile.production.anchorMode .Values.server.anchorMode $isProd -}}
+{{- $requireRekor := ternary .Values.profile.production.sigstoreRekorRequired .Values.server.sigstoreRekorRequired $isProd -}}
+{{- $failOnStartupCheck := ternary .Values.profile.production.failOnStartupCheck .Values.server.failOnStartupCheck $isProd -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "vaol.fullname" . }}-server
+  labels:
+    {{- include "vaol.labels" . | nindent 4 }}
+    app.kubernetes.io/component: server
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "vaol.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: server
+  template:
+    metadata:
+      {{- with .Values.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      labels:
+        {{- include "vaol.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: server
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      serviceAccountName: {{ include "vaol.serviceAccountName" . }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      containers:
+        - name: vaol-server
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          args:
+            - --addr=:{{ .Values.server.port }}
+            - --dsn={{ include "vaol.databaseDSN" . }}
+            - --signer-mode={{ .Values.server.signingMode }}
+            - --auth-mode={{ $authMode }}
+            - --policy-mode={{ $policyMode }}
+            - --jwt-tenant-claim={{ .Values.server.jwtTenantClaim }}
+            - --jwt-subject-claim={{ .Values.server.jwtSubjectClaim }}
+            - --checkpoint-every={{ .Values.server.checkpointEvery }}
+            - --checkpoint-interval={{ .Values.server.checkpointInterval }}
+            - --anchor-mode={{ $anchorMode }}
+            - --rebuild-on-start={{ .Values.server.rebuildOnStart }}
+            - --fail-on-startup-check={{ $failOnStartupCheck }}
+            {{- if .Values.server.jwtIssuer }}
+            - --jwt-issuer={{ .Values.server.jwtIssuer }}
+            {{- end }}
+            {{- if .Values.server.jwtAudience }}
+            - --jwt-audience={{ .Values.server.jwtAudience }}
+            {{- end }}
+            {{- if .Values.server.jwksFile }}
+            - --jwks-file={{ .Values.server.jwksFile }}
+            {{- end }}
+            {{- if .Values.server.jwksURL }}
+            - --jwks-url={{ .Values.server.jwksURL }}
+            {{- end }}
+            {{- if .Values.server.jwtHS256Secret }}
+            - --jwt-hs256-secret={{ .Values.server.jwtHS256Secret }}
+            {{- end }}
+            {{- if .Values.server.anchorURL }}
+            - --anchor-url={{ .Values.server.anchorURL }}
+            {{- end }}
+            {{- if eq .Values.server.signingMode "ed25519" }}
+            - --key={{ .Values.server.keyPath }}
+            {{- end }}
+            {{- if eq .Values.server.signingMode "sigstore" }}
+            - --sigstore-rekor-required={{ $requireRekor }}
+            {{- if .Values.server.sigstoreFulcioURL }}
+            - --sigstore-fulcio-url={{ .Values.server.sigstoreFulcioURL }}
+            {{- end }}
+            {{- if .Values.server.sigstoreRekorURL }}
+            - --sigstore-rekor-url={{ .Values.server.sigstoreRekorURL }}
+            {{- end }}
+            {{- end }}
+            {{- if eq .Values.server.signingMode "kms" }}
+            - --kms-provider={{ .Values.server.kmsProvider }}
+            - --kms-key-uri={{ .Values.server.kmsKeyURI }}
+            {{- if .Values.server.kmsEndpoint }}
+            - --kms-endpoint={{ .Values.server.kmsEndpoint }}
+            {{- end }}
+            {{- if .Values.server.kmsAccessToken }}
+            - --kms-access-token={{ .Values.server.kmsAccessToken }}
+            {{- end }}
+            {{- end }}
+            {{- if .Values.opa.enabled }}
+            - --opa-url=http://{{ include "vaol.fullname" . }}-opa:{{ .Values.opa.port }}
+            - --opa-policy={{ .Values.server.opaPolicy }}
+            {{- else if .Values.server.opaURL }}
+            - --opa-url={{ .Values.server.opaURL }}
+            - --opa-policy={{ .Values.server.opaPolicy }}
+            {{- end }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.server.port }}
+              protocol: TCP
+          livenessProbe:
+            httpGet:
+              path: /v1/health
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 30
+          readinessProbe:
+            httpGet:
+              path: /v1/health
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          volumeMounts:
+            {{- if and (eq .Values.server.signingMode "ed25519") (or .Values.signingKey.create .Values.signingKey.existingSecret) }}
+            - name: signing-key
+              mountPath: /etc/vaol/keys
+              readOnly: true
+            {{- end }}
+      volumes:
+        {{- if and (eq .Values.server.signingMode "ed25519") (or .Values.signingKey.create .Values.signingKey.existingSecret) }}
+        - name: signing-key
+          secret:
+            secretName: {{ if .Values.signingKey.existingSecret }}{{ .Values.signingKey.existingSecret }}{{ else }}{{ include "vaol.fullname" . }}-signing-key{{ end }}
+        {{- end }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}

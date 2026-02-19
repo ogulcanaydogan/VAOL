@@ -1,0 +1,208 @@
+syntax = "proto3";
+
+package vaol.v1;
+
+option go_package = "github.com/yapay-ai/vaol/gen/vaol/v1;vaolv1";
+
+import "google/protobuf/timestamp.proto";
+
+// VAOLLedger is the main gRPC service for the VAOL append-only ledger.
+service VAOLLedger {
+  // AppendRecord adds a signed DecisionRecord to the ledger.
+  rpc AppendRecord(AppendRecordRequest) returns (AppendRecordResponse);
+
+  // GetRecord retrieves a single record by request ID.
+  rpc GetRecord(GetRecordRequest) returns (GetRecordResponse);
+
+  // ListRecords returns records matching filter criteria.
+  rpc ListRecords(ListRecordsRequest) returns (stream DecisionRecordEnvelope);
+
+  // GetInclusionProof returns a Merkle inclusion proof for a record.
+  rpc GetInclusionProof(GetInclusionProofRequest) returns (InclusionProofResponse);
+
+  // GetProofByID returns a stored inclusion proof by proof identifier.
+  rpc GetProofByID(GetProofByIDRequest) returns (InclusionProofResponse);
+
+  // GetConsistencyProof returns a Merkle consistency proof between two tree sizes.
+  rpc GetConsistencyProof(GetConsistencyProofRequest) returns (ConsistencyProofResponse);
+
+  // GetCheckpoint returns the latest signed Merkle checkpoint.
+  rpc GetCheckpoint(GetCheckpointRequest) returns (SignedCheckpoint);
+
+  // VerifyRecord verifies a single record or DSSE envelope.
+  rpc VerifyRecord(VerifyRecordRequest) returns (VerificationResult);
+
+  // ExportBundle exports records as an audit bundle.
+  rpc ExportBundle(ExportBundleRequest) returns (stream BundleChunk);
+
+  // Health returns the server health status.
+  rpc Health(HealthRequest) returns (HealthResponse);
+}
+
+// --- Request / Response messages ---
+
+message AppendRecordRequest {
+  // The DSSE envelope containing the signed DecisionRecord.
+  // If omitted, the server will sign the raw_payload.
+  DSSEEnvelope envelope = 1;
+
+  // Raw DecisionRecord JSON (server will sign it).
+  // Only used when envelope is not provided.
+  bytes raw_payload = 2;
+}
+
+message AppendRecordResponse {
+  string request_id = 1;
+  int64 sequence_number = 2;
+  string record_hash = 3;
+  string merkle_root = 4;
+  int64 merkle_tree_size = 5;
+  InclusionProof inclusion_proof = 6;
+  google.protobuf.Timestamp timestamp = 7;
+  string inclusion_proof_ref = 8;
+}
+
+message GetRecordRequest {
+  // Retrieve by request_id (UUID string).
+  string request_id = 1;
+
+  // Alternatively, retrieve by sequence number.
+  int64 sequence_number = 2;
+}
+
+message GetRecordResponse {
+  DecisionRecordEnvelope record = 1;
+}
+
+message ListRecordsRequest {
+  string tenant_id = 1;
+  google.protobuf.Timestamp after = 2;
+  google.protobuf.Timestamp before = 3;
+  string model = 4;
+  string policy_decision = 5;
+  int32 limit = 6;
+  string cursor = 7;
+}
+
+message GetInclusionProofRequest {
+  string request_id = 1;
+  int64 tree_size = 2;  // optional: defaults to latest tree size
+}
+
+message InclusionProofResponse {
+  InclusionProof proof = 1;
+}
+
+message GetProofByIDRequest {
+  string proof_id = 1;
+}
+
+message GetConsistencyProofRequest {
+  int64 first_tree_size = 1;
+  int64 second_tree_size = 2;
+}
+
+message ConsistencyProofResponse {
+  ConsistencyProof proof = 1;
+}
+
+message GetCheckpointRequest {
+  // Empty: returns the latest checkpoint.
+}
+
+message VerifyRecordRequest {
+  // The DSSE envelope to verify.
+  DSSEEnvelope envelope = 1;
+
+  // Optionally include the expected chain predecessor.
+  string expected_previous_hash = 2;
+
+  // Verification profile: basic, strict, fips.
+  string verification_profile = 3;
+}
+
+message VerificationResult {
+  string request_id = 1;
+  bool valid = 2;
+  repeated CheckResult checks = 3;
+  string error = 4;
+}
+
+message CheckResult {
+  string name = 1;
+  bool passed = 2;
+  string details = 3;
+  string error = 4;
+}
+
+message ExportBundleRequest {
+  string tenant_id = 1;
+  google.protobuf.Timestamp after = 2;
+  google.protobuf.Timestamp before = 3;
+  string policy_decision = 4;
+}
+
+message BundleChunk {
+  bytes data = 1;
+  int64 total_size = 2;
+  int64 offset = 3;
+}
+
+message HealthRequest {}
+
+message HealthResponse {
+  string status = 1;
+  string version = 2;
+  int64 record_count = 3;
+  int64 merkle_tree_size = 4;
+}
+
+// --- Core data types ---
+
+message DSSEEnvelope {
+  string payload_type = 1;
+  string payload = 2;  // base64url-encoded
+  repeated DSSESignature signatures = 3;
+}
+
+message DSSESignature {
+  string keyid = 1;
+  string sig = 2;      // base64url-encoded
+  string cert = 3;     // optional: Fulcio certificate (Sigstore keyless)
+  string timestamp = 4;
+}
+
+message DecisionRecordEnvelope {
+  int64 sequence_number = 1;
+  DSSEEnvelope envelope = 2;
+  string record_hash = 3;
+  string previous_record_hash = 4;
+  string tenant_id = 5;
+  google.protobuf.Timestamp timestamp = 6;
+  int64 merkle_leaf_index = 7;
+  string inclusion_proof_ref = 8;
+}
+
+message InclusionProof {
+  int64 leaf_index = 1;
+  int64 tree_size = 2;
+  string root_hash = 3;
+  repeated string hashes = 4;
+  SignedCheckpoint checkpoint = 5;
+}
+
+message ConsistencyProof {
+  int64 first_tree_size = 1;
+  int64 second_tree_size = 2;
+  string first_root_hash = 3;
+  string second_root_hash = 4;
+  repeated string hashes = 5;
+}
+
+message SignedCheckpoint {
+  int64 tree_size = 1;
+  string root_hash = 2;
+  google.protobuf.Timestamp timestamp = 3;
+  string signature = 4;
+  string rekor_entry_id = 5;
+}

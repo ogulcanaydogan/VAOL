@@ -1,0 +1,71 @@
+{{- if .Values.opa.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "vaol.fullname" . }}-opa
+  labels:
+    {{- include "vaol.labels" . | nindent 4 }}
+    app.kubernetes.io/component: opa
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "vaol.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: opa
+  template:
+    metadata:
+      labels:
+        {{- include "vaol.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: opa
+    spec:
+      containers:
+        - name: opa
+          image: "{{ .Values.opa.image.repository }}:{{ .Values.opa.image.tag }}"
+          imagePullPolicy: {{ .Values.opa.image.pullPolicy }}
+          args:
+            - run
+            - --server
+            - --addr=:{{ .Values.opa.port }}
+            - --log-level=error
+            - /policies
+          ports:
+            - name: http
+              containerPort: {{ .Values.opa.port }}
+              protocol: TCP
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+          readinessProbe:
+            httpGet:
+              path: /health?bundles
+              port: http
+          resources:
+            {{- toYaml .Values.opa.resources | nindent 12 }}
+          volumeMounts:
+            - name: policies
+              mountPath: /policies
+              readOnly: true
+      volumes:
+        - name: policies
+          configMap:
+            name: {{ include "vaol.fullname" . }}-policies
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "vaol.fullname" . }}-opa
+  labels:
+    {{- include "vaol.labels" . | nindent 4 }}
+    app.kubernetes.io/component: opa
+spec:
+  type: ClusterIP
+  ports:
+    - port: {{ .Values.opa.port }}
+      targetPort: http
+      protocol: TCP
+      name: http
+  selector:
+    {{- include "vaol.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: opa
+{{- end }}

@@ -1,0 +1,35 @@
+{{- if .Values.opa.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "vaol.fullname" . }}-policies
+  labels:
+    {{- include "vaol.labels" . | nindent 4 }}
+data:
+  base.rego: |
+    package vaol.base
+
+    default allow = false
+
+    allow {
+      input.tenant_id != ""
+      input.model.provider != ""
+      input.model.name != ""
+      input.output.mode != ""
+    }
+
+    deny_reasons[msg] {
+      input.tenant_id == ""
+      msg := "tenant_id is required"
+    }
+
+    deny_reasons[msg] {
+      input.model.provider == ""
+      msg := "model.provider is required"
+    }
+
+    deny_reasons[msg] {
+      input.model.name == ""
+      msg := "model.name is required"
+    }
+{{- end }}

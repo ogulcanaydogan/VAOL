@@ -1,0 +1,143 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  lint-go:
+    name: Lint (Go)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.23"
+      - uses: golangci/golangci-lint-action@v6
+        with:
+          version: latest
+
+  lint-python:
+    name: Lint (Python)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install ruff mypy
+      - run: ruff check sdk/python/vaol/
+      - run: cd sdk/python && mypy vaol/
+
+  test-go:
+    name: Test (Go Full)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.23"
+      - run: go test -race -cover ./...
+
+  test-e2e-tamper:
+    name: Test (E2E + Tamper)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.23"
+      - run: go test -race ./tests/e2e ./tests/tamper -v
+
+  test-python:
+    name: Test (Python)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: cd sdk/python && pip install -e ".[dev]" && pytest tests/ -v
+
+  security:
+    name: Security Scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.23"
+      - run: go install github.com/securego/gosec/v2/cmd/gosec@latest
+      - run: go install golang.org/x/vuln/cmd/govulncheck@latest
+      - run: gosec -quiet ./...
+      - run: govulncheck ./...
+      - uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: fs
+          scan-ref: .
+          severity: CRITICAL,HIGH
+
+  sbom:
+    name: SBOM
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: anchore/sbom-action@v0
+        with:
+          path: .
+          format: spdx-json
+          output-file: sbom.spdx.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sbom-spdx
+          path: sbom.spdx.json
+
+  build:
+    name: Build
+    runs-on: ubuntu-latest
+    needs: [lint-go, test-go, test-e2e-tamper, security]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.23"
+      - run: go build ./cmd/vaol-server
+      - run: go build ./cmd/vaol-cli
+      - run: go build ./cmd/vaol-proxy
+
+  docker:
+    name: Docker Build
+    runs-on: ubuntu-latest
+    needs: [build]
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker build -f deploy/docker/Dockerfile.server -t vaol-server:ci .
+      - run: docker build -f deploy/docker/Dockerfile.proxy -t vaol-proxy:ci .
+
+  auditor-demo:
+    name: Auditor Demo (Integration)
+    runs-on: ubuntu-latest
+    needs: [build]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.23"
+      - name: Run reproducible auditor demo
+        env:
+          VAOL_DEMO_KEEP_STACK: "0"
+        run: ./scripts/demo_auditor.sh
+      - name: Upload auditor demo artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: auditor-demo-artifacts
+          path: |
+            tmp/demo-auditor/**

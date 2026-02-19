@@ -1,0 +1,469 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://vaol.dev/schemas/v1/decision-record.schema.json",
+  "title": "VAOL DecisionRecord v1",
+  "description": "A cryptographically verifiable evidence record for a single AI/LLM inference decision.",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "request_id",
+    "timestamp",
+    "identity",
+    "model",
+    "parameters",
+    "prompt_context",
+    "policy_context",
+    "output",
+    "trace",
+    "integrity"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "const": "v1",
+      "description": "Schema version identifier."
+    },
+    "request_id": {
+      "type": "string",
+      "format": "uuid",
+      "description": "Unique identifier for this inference request (UUIDv4)."
+    },
+    "timestamp": {
+      "type": "string",
+      "format": "date-time",
+      "description": "ISO 8601 timestamp of record creation in UTC."
+    },
+    "identity": {
+      "type": "object",
+      "description": "Tenant and subject identity claims. Subjects may be pseudonymous.",
+      "required": ["tenant_id", "subject"],
+      "additionalProperties": false,
+      "properties": {
+        "tenant_id": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Organization/tenant identifier."
+        },
+        "subject": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Pseudonymous user or service identity (e.g., HMAC of user ID)."
+        },
+        "subject_type": {
+          "type": "string",
+          "enum": ["user", "service", "pipeline"],
+          "description": "Type of the calling subject."
+        },
+        "claims": {
+          "type": "object",
+          "description": "Additional identity claims (roles, groups, scopes).",
+          "additionalProperties": { "type": "string" }
+        }
+      }
+    },
+    "auth_context": {
+      "type": "object",
+      "description": "Server-populated authentication context used for tenant/subject binding.",
+      "additionalProperties": false,
+      "properties": {
+        "issuer": {
+          "type": "string",
+          "description": "Authentication issuer identifier."
+        },
+        "subject": {
+          "type": "string",
+          "description": "Authenticated subject extracted from token or mTLS identity."
+        },
+        "token_hash": {
+          "type": "string",
+          "pattern": "^sha256:[a-f0-9]{64}$",
+          "description": "Digest of the presented bearer token."
+        },
+        "source": {
+          "type": "string",
+          "description": "Source of authentication claims (gateway, mtls, oidc, etc)."
+        },
+        "authenticated": {
+          "type": "boolean",
+          "description": "Whether the request was authenticated."
+        }
+      }
+    },
+    "model": {
+      "type": "object",
+      "description": "AI model identity and endpoint metadata.",
+      "required": ["provider", "name"],
+      "additionalProperties": false,
+      "properties": {
+        "provider": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Model provider (e.g., openai, anthropic, azure, bedrock)."
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Model name (e.g., gpt-4o, claude-sonnet-4-5-20250929)."
+        },
+        "version": {
+          "type": "string",
+          "description": "Model version or snapshot identifier."
+        },
+        "endpoint": {
+          "type": "string",
+          "format": "uri",
+          "description": "API endpoint URL used for this inference call."
+        },
+        "deployment_id": {
+          "type": "string",
+          "description": "Deployment-specific identifier (e.g., Azure deployment name)."
+        }
+      }
+    },
+    "parameters": {
+      "type": "object",
+      "description": "Inference parameters used for this request.",
+      "additionalProperties": true,
+      "properties": {
+        "temperature": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 2
+        },
+        "top_p": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "max_tokens": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "frequency_penalty": {
+          "type": "number",
+          "minimum": -2,
+          "maximum": 2
+        },
+        "presence_penalty": {
+          "type": "number",
+          "minimum": -2,
+          "maximum": 2
+        },
+        "stop_sequences": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "seed": {
+          "type": "integer"
+        },
+        "tools_enabled": {
+          "type": "boolean"
+        },
+        "response_format": {
+          "type": "string"
+        }
+      }
+    },
+    "prompt_context": {
+      "type": "object",
+      "description": "Cryptographic hashes of prompt components. Raw content is never stored here.",
+      "required": ["user_prompt_hash"],
+      "additionalProperties": false,
+      "properties": {
+        "system_prompt_hash": {
+          "type": "string",
+          "pattern": "^sha256:[a-f0-9]{64}$",
+          "description": "SHA-256 digest of the system prompt."
+        },
+        "user_prompt_hash": {
+          "type": "string",
+          "pattern": "^sha256:[a-f0-9]{64}$",
+          "description": "SHA-256 digest of the user prompt (or full message array)."
+        },
+        "user_prompt_template_id": {
+          "type": "string",
+          "description": "Identifier of the prompt template used, if any."
+        },
+        "user_prompt_template_hash": {
+          "type": "string",
+          "pattern": "^sha256:[a-f0-9]{64}$",
+          "description": "SHA-256 digest of the prompt template content used, if any."
+        },
+        "tool_schema_hash": {
+          "type": "string",
+          "pattern": "^sha256:[a-f0-9]{64}$",
+          "description": "SHA-256 digest of the tool/function schema provided to the model."
+        },
+        "safety_prompt_hash": {
+          "type": "string",
+          "pattern": "^sha256:[a-f0-9]{64}$",
+          "description": "SHA-256 digest of any safety/guardrail prompt injected."
+        },
+        "message_count": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Number of messages in the conversation context."
+        },
+        "total_input_tokens": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Total input token count as reported by the provider."
+        }
+      }
+    },
+    "policy_context": {
+      "type": "object",
+      "description": "Policy evaluation result sealed at record creation time.",
+      "required": ["policy_decision"],
+      "additionalProperties": false,
+      "properties": {
+        "policy_bundle_id": {
+          "type": "string",
+          "description": "Identifier of the OPA policy bundle evaluated."
+        },
+        "policy_hash": {
+          "type": "string",
+          "pattern": "^sha256:[a-f0-9]{64}$",
+          "description": "SHA-256 digest of the policy bundle."
+        },
+        "policy_decision": {
+          "type": "string",
+          "enum": ["allow", "deny", "allow_with_transform", "log_only"],
+          "description": "The policy engine's decision for this request."
+        },
+        "decision_reason_code": {
+          "type": "string",
+          "description": "Deterministic reason code for deny/fail-closed decisions."
+        },
+        "rule_ids": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "List of OPA rule identifiers that contributed to the decision."
+        },
+        "transforms_applied": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["type", "target"],
+            "additionalProperties": false,
+            "properties": {
+              "type": {
+                "type": "string",
+                "enum": ["redact_pii", "redact_phi", "mask", "filter", "custom"]
+              },
+              "target": {
+                "type": "string",
+                "enum": ["input", "output", "both"]
+              },
+              "details": {
+                "type": "string",
+                "description": "Human-readable description of the transform."
+              }
+            }
+          },
+          "description": "Data transforms applied before/after inference."
+        },
+        "policy_engine_version": {
+          "type": "string",
+          "description": "Version of the policy engine (e.g., OPA version)."
+        },
+        "evaluation_duration_ms": {
+          "type": "number",
+          "minimum": 0,
+          "description": "Time taken for policy evaluation in milliseconds."
+        }
+      }
+    },
+    "rag_context": {
+      "type": "object",
+      "description": "Retrieval-Augmented Generation context. Present only when RAG was used.",
+      "additionalProperties": false,
+      "properties": {
+        "connector_ids": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Identifiers of RAG connectors/data sources queried."
+        },
+        "document_ids": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Identifiers of retrieved documents."
+        },
+        "chunk_hashes": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^sha256:[a-f0-9]{64}$"
+          },
+          "description": "SHA-256 digests of retrieved text chunks."
+        },
+        "citation_hashes": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^sha256:[a-f0-9]{64}$"
+          },
+          "description": "SHA-256 digests of citations included in the output."
+        },
+        "retrieval_policy_decision": {
+          "type": "string",
+          "enum": ["allow", "deny", "partial"],
+          "description": "Policy decision for the retrieval operation."
+        },
+        "prompt_injection_check": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "performed": {
+              "type": "boolean",
+              "description": "Whether a prompt injection check was performed on retrieved content."
+            },
+            "result": {
+              "type": "string",
+              "enum": ["pass", "fail", "skipped"],
+              "description": "Result of the prompt injection check."
+            },
+            "detector_version": {
+              "type": "string",
+              "description": "Version of the prompt injection detector used."
+            }
+          },
+          "description": "Prompt injection detection result for retrieved chunks."
+        }
+      }
+    },
+    "output": {
+      "type": "object",
+      "description": "Output evidence. Always includes a hash; optionally includes encrypted or plaintext payload.",
+      "required": ["output_hash", "mode"],
+      "additionalProperties": false,
+      "properties": {
+        "output_hash": {
+          "type": "string",
+          "pattern": "^sha256:[a-f0-9]{64}$",
+          "description": "SHA-256 digest of the raw model output."
+        },
+        "mode": {
+          "type": "string",
+          "enum": ["hash_only", "encrypted", "plaintext"],
+          "description": "Storage mode for the output content."
+        },
+        "output_encrypted": {
+          "type": "string",
+          "contentEncoding": "base64",
+          "description": "age-encrypted output blob (base64-encoded). Present only when mode=encrypted."
+        },
+        "output_encrypted_ref": {
+          "type": "string",
+          "description": "Reference or URI for encrypted output payload stored outside the record body."
+        },
+        "output_encrypted_hash": {
+          "type": "string",
+          "pattern": "^sha256:[a-f0-9]{64}$",
+          "description": "SHA-256 digest of encrypted payload bytes stored at output_encrypted_ref."
+        },
+        "output_plaintext": {
+          "type": "string",
+          "description": "Raw output text. Present only when mode=plaintext and policy explicitly allows."
+        },
+        "output_tokens": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Output token count as reported by the provider."
+        },
+        "finish_reason": {
+          "type": "string",
+          "description": "Model's finish reason (e.g., stop, length, tool_calls)."
+        },
+        "latency_ms": {
+          "type": "number",
+          "minimum": 0,
+          "description": "End-to-end inference latency in milliseconds."
+        }
+      }
+    },
+    "trace": {
+      "type": "object",
+      "description": "Distributed tracing linkage for observability correlation.",
+      "additionalProperties": false,
+      "properties": {
+        "otel_trace_id": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{32}$",
+          "description": "OpenTelemetry 128-bit trace ID (hex-encoded)."
+        },
+        "otel_span_id": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{16}$",
+          "description": "OpenTelemetry 64-bit span ID (hex-encoded)."
+        },
+        "parent_request_id": {
+          "type": "string",
+          "format": "uuid",
+          "description": "Links chained LLM calls in agent loops or multi-step pipelines."
+        },
+        "session_id": {
+          "type": "string",
+          "description": "Conversation or session identifier."
+        }
+      }
+    },
+    "integrity": {
+      "type": "object",
+      "description": "Cryptographic integrity fields binding this record into the append-only ledger.",
+      "required": ["record_hash"],
+      "additionalProperties": false,
+      "properties": {
+        "sequence_number": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Monotonically increasing position in the ledger."
+        },
+        "record_hash": {
+          "type": "string",
+          "pattern": "^sha256:[a-f0-9]{64}$",
+          "description": "SHA-256 of the JCS-canonicalized payload (excluding integrity sub-fields that are computed)."
+        },
+        "previous_record_hash": {
+          "type": "string",
+          "pattern": "^sha256:[a-f0-9]{64}$",
+          "description": "record_hash of the preceding record. Genesis uses the well-known zero hash."
+        },
+        "merkle_root": {
+          "type": "string",
+          "pattern": "^sha256:[a-f0-9]{64}$",
+          "description": "Merkle tree root hash after this record was appended."
+        },
+        "merkle_tree_size": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Number of leaves in the Merkle tree after this record was appended."
+        },
+        "inclusion_proof": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "leaf_index": {
+              "type": "integer",
+              "minimum": 0,
+              "description": "This record's leaf index in the Merkle tree."
+            },
+            "hashes": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "pattern": "^sha256:[a-f0-9]{64}$"
+              },
+              "description": "Sibling hashes from leaf to root for inclusion verification."
+            }
+          },
+          "description": "Merkle inclusion proof for this record."
+        },
+        "inclusion_proof_ref": {
+          "type": "string",
+          "description": "Reference to externally stored inclusion proof details."
+        }
+      }
+    }
+  }
+}

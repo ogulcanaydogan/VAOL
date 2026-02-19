@@ -1,0 +1,70 @@
+services:
+  vaol-server:
+    build:
+      context: ../..
+      dockerfile: deploy/docker/Dockerfile.server
+    ports:
+      - "8080:8080"
+    environment:
+      - VAOL_DSN=postgres://vaol:vaol@postgres:5432/vaol?sslmode=disable
+      - VAOL_ADDR=:8080
+    depends_on:
+      postgres:
+        condition: service_healthy
+      opa:
+        condition: service_started
+    command: >
+      /vaol-server
+        --addr :8080
+        --dsn postgres://vaol:vaol@postgres:5432/vaol?sslmode=disable
+        --opa-url http://opa:8181
+        --opa-policy ${VAOL_OPA_POLICY:-v1/data/vaol/decision}
+        --auth-mode ${VAOL_AUTH_MODE:-disabled}
+
+  vaol-proxy:
+    build:
+      context: ../..
+      dockerfile: deploy/docker/Dockerfile.proxy
+    ports:
+      - "8443:8443"
+    environment:
+      - VAOL_SERVER=http://vaol-server:8080
+    depends_on:
+      - vaol-server
+    command: >
+      /vaol-proxy
+        --addr :8443
+        --upstream https://api.openai.com
+        --vaol-server http://vaol-server:8080
+
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: vaol
+      POSTGRES_USER: vaol
+      POSTGRES_PASSWORD: vaol
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U vaol"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  opa:
+    image: openpolicyagent/opa:latest-static
+    ports:
+      - "8181:8181"
+    volumes:
+      - ../../policies:/policies
+    command:
+      - "run"
+      - "--server"
+      - "--addr=:8181"
+      - "--log-level=info"
+      - "/policies"
+
+volumes:
+  pgdata:

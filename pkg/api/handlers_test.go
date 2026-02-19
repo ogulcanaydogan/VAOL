@@ -1,0 +1,824 @@
+package api_test
+
+import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"fmt"
+	"log/slog"
+	"net/http"
+	"net/http/httptest"
+	"testing"
+	"time"
+
+	"github.com/google/uuid"
+	"github.com/yapay-ai/vaol/pkg/api"
+	"github.com/yapay-ai/vaol/pkg/merkle"
+	"github.com/yapay-ai/vaol/pkg/policy"
+	"github.com/yapay-ai/vaol/pkg/record"
+	"github.com/yapay-ai/vaol/pkg/signer"
+	"github.com/yapay-ai/vaol/pkg/store"
+)
+
+type proofFailStore struct {
+	*store.MemoryStore
+}
+
+func (s *proofFailStore) SaveProof(_ context.Context, _ *store.StoredProof) error {
+	return fmt.Errorf("saving proof: foreign key violation")
+}
+
+// newTestServer sets up a VAOL API server backed by in-memory store + ed25519 signer.
+func newTestServer(t *testing.T) (*httptest.Server, *store.MemoryStore, *signer.Ed25519Signer) {
+	t.Helper()
+
+	ms := store.NewMemoryStore()
+	tree := merkle.New()
+	sig, err := signer.GenerateEd25519Signer()
+	if err != nil {
+		t.Fatalf("generating signer: %v", err)
+	}
+	ver := signer.NewEd25519Verifier(sig.PublicKey())
+
+	logger := slog.Default()
+	cfg := api.DefaultConfig()
+	srv := api.NewServer(cfg, ms, sig, []signer.Verifier{ver}, tree, nil, logger)
+	ts := httptest.NewServer(srv.Handler())
+	return ts, ms, sig
+}
+
+// mustPost is a test helper that performs a POST and fatals on error.
+func mustPost(t *testing.T, url, contentType string, body []byte) *http.Response {
+	t.Helper()
+	return mustPostWithHeaders(t, url, contentType, body, map[string]string{
+		"X-VAOL-Tenant-ID": "test-tenant",
+	})
+}
+
+// mustPostWithHeaders is a test helper that performs a POST with custom headers.
+func mustPostWithHeaders(t *testing.T, url, contentType string, body []byte, headers map[string]string) *http.Response {
+	t.Helper()
+
+	req, err := http.NewRequest(http.MethodPost, url, bytes.NewReader(body))
+	if err != nil {
+		t.Fatalf("new POST request %s: %v", url, err)
+	}
+	if contentType != "" {
+		req.Header.Set("Content-Type", contentType)
+	}
+	for k, v := range headers {
+		req.Header.Set(k, v)
+	}
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("POST %s: %v", url, err)
+	}
+	return resp
+}
+
+// mustGet is a test helper that performs a GET and fatals on error.
+func mustGet(t *testing.T, url string) *http.Response {
+	t.Helper()
+	return mustGetWithHeaders(t, url, map[string]string{
+		"X-VAOL-Tenant-ID": "test-tenant",
+	})
+}
+
+// mustGetWithHeaders is a test helper that performs a GET with custom headers.
+func mustGetWithHeaders(t *testing.T, url string, headers map[string]string) *http.Response {
+	t.Helper()
+	req, err := http.NewRequest(http.MethodGet, url, nil)
+	if err != nil {
+		t.Fatalf("new GET request %s: %v", url, err)
+	}
+	for k, v := range headers {
+		req.Header.Set(k, v)
+	}
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("GET %s: %v", url, err)
+	}
+	return resp
+}
+
+// validRecordJSON returns a minimal valid DecisionRecord JSON body.
+func validRecordJSON(t *testing.T) []byte {
+	t.Helper()
+	rec := map[string]any{
+		"schema_version": "v1",
+		"request_id":     uuid.New().String(),
+		"timestamp":      time.Now().UTC().Format(time.RFC3339Nano),
+		"identity": map[string]any{
+			"tenant_id": "test-tenant",
+			"subject":   "test-user",
+		},
+		"model": map[string]any{
+			"provider": "openai",
+			"name":     "gpt-4o",
+		},
+		"parameters": map[string]any{},
+		"prompt_context": map[string]any{
+			"user_prompt_hash": "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+		},
+		"policy_context": map[string]any{
+			"policy_decision": "allow",
+		},
+		"output": map[string]any{
+			"output_hash": "sha256:fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210",
+			"mode":        "hash_only",
+		},
+		"trace":     map[string]any{},
+		"integrity": map[string]any{},
+	}
+	data, err := json.Marshal(rec)
+	if err != nil {
+		t.Fatalf("marshaling record: %v", err)
+	}
+	return data
+}
+
+func TestAppendRecord(t *testing.T) {
+	ts, ms, _ := newTestServer(t)
+	defer ts.Close()
+
+	body := validRecordJSON(t)
+	resp := mustPost(t, ts.URL+"/v1/records", "application/json", body)
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusCreated {
+		var errBody map[string]string
+		json.NewDecoder(resp.Body).Decode(&errBody)
+		t.Fatalf("expected 201 Created, got %d: %v", resp.StatusCode, errBody)
+	}
+
+	var receipt record.Receipt
+	if err := json.NewDecoder(resp.Body).Decode(&receipt); err != nil {
+		t.Fatalf("decoding receipt: %v", err)
+	}
+
+	if receipt.RequestID == uuid.Nil {
+		t.Error("receipt.request_id is nil")
+	}
+	if receipt.RecordHash == "" {
+		t.Error("receipt.record_hash is empty")
+	}
+	if receipt.MerkleRoot == "" {
+		t.Error("receipt.merkle_root is empty")
+	}
+
+	count, _ := ms.Count(context.Background())
+	if count != 1 {
+		t.Errorf("expected 1 record in store, got %d", count)
+	}
+
+	if resp.Header.Get("X-VAOL-Record-ID") == "" {
+		t.Error("missing X-VAOL-Record-ID header")
+	}
+	if resp.Header.Get("X-VAOL-Sequence") == "" {
+		t.Error("missing X-VAOL-Sequence header")
+	}
+}
+
+func TestAppendRecord_InvalidBody(t *testing.T) {
+	ts, _, _ := newTestServer(t)
+	defer ts.Close()
+
+	resp := mustPost(t, ts.URL+"/v1/records", "application/json", []byte("not json"))
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d", resp.StatusCode)
+	}
+}
+
+func TestAppendRecord_DuplicateRequestID(t *testing.T) {
+	ts, _, _ := newTestServer(t)
+	defer ts.Close()
+
+	body := validRecordJSON(t)
+
+	resp1 := mustPost(t, ts.URL+"/v1/records", "application/json", body)
+	resp1.Body.Close()
+	if resp1.StatusCode != http.StatusCreated {
+		t.Fatalf("first append: expected 201, got %d", resp1.StatusCode)
+	}
+
+	resp2 := mustPost(t, ts.URL+"/v1/records", "application/json", body)
+	defer resp2.Body.Close()
+	if resp2.StatusCode != http.StatusConflict {
+		t.Fatalf("duplicate append: expected 409, got %d", resp2.StatusCode)
+	}
+}
+
+func TestGetRecord(t *testing.T) {
+	ts, _, _ := newTestServer(t)
+	defer ts.Close()
+
+	body := validRecordJSON(t)
+	resp := mustPost(t, ts.URL+"/v1/records", "application/json", body)
+	var receipt record.Receipt
+	json.NewDecoder(resp.Body).Decode(&receipt)
+	resp.Body.Close()
+
+	resp2 := mustGet(t, ts.URL+"/v1/records/"+receipt.RequestID.String())
+	defer resp2.Body.Close()
+
+	if resp2.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp2.StatusCode)
+	}
+
+	var stored store.StoredRecord
+	if err := json.NewDecoder(resp2.Body).Decode(&stored); err != nil {
+		t.Fatalf("decoding stored record: %v", err)
+	}
+	if stored.RequestID != receipt.RequestID {
+		t.Errorf("request_id mismatch: got %s, want %s", stored.RequestID, receipt.RequestID)
+	}
+}
+
+func TestGetRecord_NotFound(t *testing.T) {
+	ts, _, _ := newTestServer(t)
+	defer ts.Close()
+
+	resp := mustGet(t, ts.URL+"/v1/records/"+uuid.New().String())
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusNotFound {
+		t.Fatalf("expected 404, got %d", resp.StatusCode)
+	}
+}
+
+func TestGetRecord_TenantMismatch(t *testing.T) {
+	ts, _, _ := newTestServer(t)
+	defer ts.Close()
+
+	body := validRecordJSON(t)
+	resp := mustPost(t, ts.URL+"/v1/records", "application/json", body)
+	var receipt record.Receipt
+	if err := json.NewDecoder(resp.Body).Decode(&receipt); err != nil {
+		t.Fatalf("decode receipt: %v", err)
+	}
+	resp.Body.Close()
+
+	resp2 := mustGetWithHeaders(t, ts.URL+"/v1/records/"+receipt.RequestID.String(), map[string]string{
+		"X-VAOL-Tenant-ID": "other-tenant",
+	})
+	defer resp2.Body.Close()
+
+	if resp2.StatusCode != http.StatusForbidden {
+		t.Fatalf("expected 403, got %d", resp2.StatusCode)
+	}
+}
+
+func TestGetRecord_InvalidID(t *testing.T) {
+	ts, _, _ := newTestServer(t)
+	defer ts.Close()
+
+	resp := mustGet(t, ts.URL+"/v1/records/not-a-uuid")
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d", resp.StatusCode)
+	}
+}
+
+func TestListRecords(t *testing.T) {
+	ts, _, _ := newTestServer(t)
+	defer ts.Close()
+
+	for i := 0; i < 3; i++ {
+		body := validRecordJSON(t)
+		r := mustPost(t, ts.URL+"/v1/records", "application/json", body)
+		r.Body.Close()
+	}
+
+	resp := mustGet(t, ts.URL+"/v1/records?limit=10")
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+
+	var result struct {
+		Records []json.RawMessage `json:"records"`
+		Count   int               `json:"count"`
+	}
+	json.NewDecoder(resp.Body).Decode(&result)
+	if result.Count != 3 {
+		t.Errorf("expected 3 records, got %d", result.Count)
+	}
+}
+
+func TestListRecords_MissingTenantContext(t *testing.T) {
+	ts, _, _ := newTestServer(t)
+	defer ts.Close()
+
+	body := validRecordJSON(t)
+	r := mustPost(t, ts.URL+"/v1/records", "application/json", body)
+	r.Body.Close()
+
+	req, err := http.NewRequest(http.MethodGet, ts.URL+"/v1/records?limit=10", nil)
+	if err != nil {
+		t.Fatalf("new request: %v", err)
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("GET /v1/records: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusForbidden {
+		t.Fatalf("expected 403, got %d", resp.StatusCode)
+	}
+}
+
+func TestListRecords_WithTenantFilter(t *testing.T) {
+	ts, _, _ := newTestServer(t)
+	defer ts.Close()
+
+	for i := 0; i < 2; i++ {
+		body := validRecordJSON(t)
+		r := mustPost(t, ts.URL+"/v1/records", "application/json", body)
+		r.Body.Close()
+	}
+
+	resp := mustGet(t, ts.URL+"/v1/records?tenant_id=test-tenant&limit=10")
+	defer resp.Body.Close()
+
+	var result struct {
+		Records []json.RawMessage `json:"records"`
+		Count   int               `json:"count"`
+	}
+	json.NewDecoder(resp.Body).Decode(&result)
+	if result.Count != 2 {
+		t.Errorf("expected 2 records for test-tenant, got %d", result.Count)
+	}
+
+	resp2 := mustGetWithHeaders(t, ts.URL+"/v1/records?tenant_id=no-such-tenant", map[string]string{
+		"X-VAOL-Tenant-ID": "no-such-tenant",
+	})
+	defer resp2.Body.Close()
+	var result2 struct {
+		Count int `json:"count"`
+	}
+	json.NewDecoder(resp2.Body).Decode(&result2)
+	if result2.Count != 0 {
+		t.Errorf("expected 0 records for non-existent tenant, got %d", result2.Count)
+	}
+}
+
+func TestGetProof(t *testing.T) {
+	ts, _, _ := newTestServer(t)
+	defer ts.Close()
+
+	body := validRecordJSON(t)
+	resp := mustPost(t, ts.URL+"/v1/records", "application/json", body)
+	var receipt record.Receipt
+	json.NewDecoder(resp.Body).Decode(&receipt)
+	resp.Body.Close()
+
+	resp2 := mustGet(t, ts.URL+"/v1/records/"+receipt.RequestID.String()+"/proof")
+	defer resp2.Body.Close()
+
+	if resp2.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp2.StatusCode)
+	}
+
+	var proof merkle.Proof
+	json.NewDecoder(resp2.Body).Decode(&proof)
+	if proof.ProofType != merkle.ProofTypeInclusion {
+		t.Errorf("expected inclusion proof, got %s", proof.ProofType)
+	}
+}
+
+func TestGetProofByID(t *testing.T) {
+	ts, _, _ := newTestServer(t)
+	defer ts.Close()
+
+	body := validRecordJSON(t)
+	resp := mustPost(t, ts.URL+"/v1/records", "application/json", body)
+	var receipt record.Receipt
+	json.NewDecoder(resp.Body).Decode(&receipt)
+	resp.Body.Close()
+
+	if receipt.InclusionProofRef == "" {
+		t.Fatal("expected inclusion_proof_ref in receipt")
+	}
+
+	resp2 := mustGet(t, ts.URL+receipt.InclusionProofRef)
+	defer resp2.Body.Close()
+	if resp2.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp2.StatusCode)
+	}
+}
+
+func TestAppendRecord_ProofPersistFailureDoesNotFailAppend(t *testing.T) {
+	fs := &proofFailStore{MemoryStore: store.NewMemoryStore()}
+	tree := merkle.New()
+	sig, err := signer.GenerateEd25519Signer()
+	if err != nil {
+		t.Fatalf("generating signer: %v", err)
+	}
+	ver := signer.NewEd25519Verifier(sig.PublicKey())
+
+	srv := api.NewServer(api.DefaultConfig(), fs, sig, []signer.Verifier{ver}, tree, nil, slog.Default())
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	body := validRecordJSON(t)
+	resp := mustPost(t, ts.URL+"/v1/records", "application/json", body)
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("expected 201 even when proof persistence fails, got %d", resp.StatusCode)
+	}
+
+	var receipt record.Receipt
+	if err := json.NewDecoder(resp.Body).Decode(&receipt); err != nil {
+		t.Fatalf("decoding receipt: %v", err)
+	}
+	if receipt.InclusionProofRef == "" {
+		t.Fatal("expected inclusion_proof_ref in receipt")
+	}
+
+	// /v1/proofs/{id} should fall back to proof reconstruction when proof index
+	// persistence fails (e.g., FK constraint violation in SQL backends).
+	resp2 := mustGet(t, ts.URL+receipt.InclusionProofRef)
+	defer resp2.Body.Close()
+	if resp2.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200 from proof fallback, got %d", resp2.StatusCode)
+	}
+}
+
+func TestVerifyRecord(t *testing.T) {
+	ts, _, _ := newTestServer(t)
+	defer ts.Close()
+
+	body := validRecordJSON(t)
+	resp := mustPost(t, ts.URL+"/v1/records", "application/json", body)
+	var receipt record.Receipt
+	json.NewDecoder(resp.Body).Decode(&receipt)
+	resp.Body.Close()
+
+	resp2 := mustGet(t, ts.URL+"/v1/records/"+receipt.RequestID.String())
+	var stored store.StoredRecord
+	json.NewDecoder(resp2.Body).Decode(&stored)
+	resp2.Body.Close()
+
+	envJSON, _ := json.Marshal(stored.Envelope)
+	resp3 := mustPost(t, ts.URL+"/v1/verify", "application/json", envJSON)
+	defer resp3.Body.Close()
+
+	if resp3.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp3.StatusCode)
+	}
+
+	var result map[string]any
+	json.NewDecoder(resp3.Body).Decode(&result)
+	if result["valid"] != true {
+		t.Errorf("expected valid=true, got %v", result["valid"])
+	}
+}
+
+func TestCheckpoint(t *testing.T) {
+	ts, _, _ := newTestServer(t)
+	defer ts.Close()
+
+	body := validRecordJSON(t)
+	r := mustPost(t, ts.URL+"/v1/records", "application/json", body)
+	r.Body.Close()
+
+	resp := mustGet(t, ts.URL+"/v1/ledger/checkpoint")
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+
+	var cp map[string]any
+	json.NewDecoder(resp.Body).Decode(&cp)
+	if cp["tree_size"].(float64) < 1 {
+		t.Error("tree_size should be >= 1 after appending a record")
+	}
+	if cp["root_hash"] == "" {
+		t.Error("root_hash should not be empty")
+	}
+}
+
+func TestConsistencyProof(t *testing.T) {
+	ts, _, _ := newTestServer(t)
+	defer ts.Close()
+
+	for i := 0; i < 4; i++ {
+		body := validRecordJSON(t)
+		r := mustPost(t, ts.URL+"/v1/records", "application/json", body)
+		r.Body.Close()
+	}
+
+	resp := mustGet(t, ts.URL+"/v1/ledger/consistency?from=2&to=4")
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+
+	var proof merkle.Proof
+	if err := json.NewDecoder(resp.Body).Decode(&proof); err != nil {
+		t.Fatalf("decode consistency proof: %v", err)
+	}
+	if proof.ProofType != merkle.ProofTypeConsistency {
+		t.Fatalf("expected consistency proof, got %s", proof.ProofType)
+	}
+}
+
+func TestExport(t *testing.T) {
+	ts, _, _ := newTestServer(t)
+	defer ts.Close()
+
+	for i := 0; i < 3; i++ {
+		body := validRecordJSON(t)
+		r := mustPost(t, ts.URL+"/v1/records", "application/json", body)
+		r.Body.Close()
+	}
+
+	exportReq := map[string]any{
+		"tenant_id": "test-tenant",
+		"limit":     10,
+	}
+	exportBody, _ := json.Marshal(exportReq)
+	resp := mustPost(t, ts.URL+"/v1/export", "application/json", exportBody)
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+
+	var bundle map[string]any
+	json.NewDecoder(resp.Body).Decode(&bundle)
+	records := bundle["records"].([]any)
+	if len(records) != 3 {
+		t.Errorf("expected 3 records in export, got %d", len(records))
+	}
+}
+
+func TestExport_MissingTenantContext(t *testing.T) {
+	ts, _, _ := newTestServer(t)
+	defer ts.Close()
+
+	body := validRecordJSON(t)
+	r := mustPost(t, ts.URL+"/v1/records", "application/json", body)
+	r.Body.Close()
+
+	exportReq := map[string]any{
+		"tenant_id": "test-tenant",
+		"limit":     10,
+	}
+	exportBody, _ := json.Marshal(exportReq)
+	req, err := http.NewRequest(http.MethodPost, ts.URL+"/v1/export", bytes.NewReader(exportBody))
+	if err != nil {
+		t.Fatalf("new export request: %v", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("POST /v1/export: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusForbidden {
+		t.Fatalf("expected 403, got %d", resp.StatusCode)
+	}
+}
+
+func TestVerifyBundle(t *testing.T) {
+	ts, _, _ := newTestServer(t)
+	defer ts.Close()
+
+	for i := 0; i < 3; i++ {
+		body := validRecordJSON(t)
+		r := mustPost(t, ts.URL+"/v1/records", "application/json", body)
+		r.Body.Close()
+	}
+
+	exportReq := map[string]any{
+		"tenant_id": "test-tenant",
+		"limit":     10,
+	}
+	exportBody, _ := json.Marshal(exportReq)
+	exportResp := mustPost(t, ts.URL+"/v1/export", "application/json", exportBody)
+	defer exportResp.Body.Close()
+
+	var bundle map[string]any
+	if err := json.NewDecoder(exportResp.Body).Decode(&bundle); err != nil {
+		t.Fatalf("decode export bundle: %v", err)
+	}
+
+	verifyBody, _ := json.Marshal(bundle)
+	verifyResp := mustPost(t, ts.URL+"/v1/verify/bundle", "application/json", verifyBody)
+	defer verifyResp.Body.Close()
+	if verifyResp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", verifyResp.StatusCode)
+	}
+
+	var verifyResult map[string]any
+	if err := json.NewDecoder(verifyResp.Body).Decode(&verifyResult); err != nil {
+		t.Fatalf("decode verify result: %v", err)
+	}
+
+	if verifyResult["summary"] != "VERIFICATION PASSED" {
+		t.Fatalf("expected VERIFICATION PASSED, got %v", verifyResult["summary"])
+	}
+}
+
+func TestHealth(t *testing.T) {
+	ts, _, _ := newTestServer(t)
+	defer ts.Close()
+
+	resp := mustGet(t, ts.URL+"/v1/health")
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+
+	var health map[string]any
+	json.NewDecoder(resp.Body).Decode(&health)
+	if health["status"] != "ok" {
+		t.Errorf("expected status=ok, got %v", health["status"])
+	}
+}
+
+func TestCORSHeaders(t *testing.T) {
+	ts, _, _ := newTestServer(t)
+	defer ts.Close()
+
+	resp := mustGet(t, ts.URL+"/v1/health")
+	defer resp.Body.Close()
+
+	if resp.Header.Get("Access-Control-Allow-Origin") != "*" {
+		t.Error("missing CORS Allow-Origin header")
+	}
+	if resp.Header.Get("X-VAOL-Version") == "" {
+		t.Error("missing X-VAOL-Version header")
+	}
+}
+
+func TestOptionsPreFlight(t *testing.T) {
+	ts, _, _ := newTestServer(t)
+	defer ts.Close()
+
+	req, _ := http.NewRequest(http.MethodOptions, ts.URL+"/v1/records", nil)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("OPTIONS request: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("expected 204 for OPTIONS, got %d", resp.StatusCode)
+	}
+}
+
+func TestAppendRecord_WithPolicyDeny(t *testing.T) {
+	ms := store.NewMemoryStore()
+	tree := merkle.New()
+	sig, err := signer.GenerateEd25519Signer()
+	if err != nil {
+		t.Fatalf("generating signer: %v", err)
+	}
+	ver := signer.NewEd25519Verifier(sig.PublicKey())
+
+	denyEngine := &denyAllEngine{}
+	logger := slog.Default()
+	cfg := api.DefaultConfig()
+	srv := api.NewServer(cfg, ms, sig, []signer.Verifier{ver}, tree, denyEngine, logger)
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	body := validRecordJSON(t)
+	resp := mustPost(t, ts.URL+"/v1/records", "application/json", body)
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusForbidden {
+		t.Fatalf("expected 403 Forbidden with deny policy, got %d", resp.StatusCode)
+	}
+}
+
+func TestHashChainIntegrity(t *testing.T) {
+	ts, _, _ := newTestServer(t)
+	defer ts.Close()
+
+	var receipts []record.Receipt
+	for i := 0; i < 5; i++ {
+		body := validRecordJSON(t)
+		resp := mustPost(t, ts.URL+"/v1/records", "application/json", body)
+		var receipt record.Receipt
+		json.NewDecoder(resp.Body).Decode(&receipt)
+		resp.Body.Close()
+		receipts = append(receipts, receipt)
+	}
+
+	for _, r := range receipts {
+		resp := mustGet(t, ts.URL+"/v1/records/"+r.RequestID.String())
+		var stored store.StoredRecord
+		json.NewDecoder(resp.Body).Decode(&stored)
+		resp.Body.Close()
+
+		envJSON, _ := json.Marshal(stored.Envelope)
+		vResp := mustPost(t, ts.URL+"/v1/verify", "application/json", envJSON)
+		var result map[string]any
+		json.NewDecoder(vResp.Body).Decode(&result)
+		vResp.Body.Close()
+
+		if result["valid"] != true {
+			t.Errorf("record %s: expected valid=true, got %v", r.RequestID, result["valid"])
+		}
+	}
+}
+
+// denyAllEngine is a test policy engine that denies all requests.
+type denyAllEngine struct{}
+
+func (e *denyAllEngine) Evaluate(_ context.Context, _ *policy.Input) (*policy.Decision, error) {
+	return &policy.Decision{
+		Allow:    false,
+		Decision: "deny",
+		RuleIDs:  []string{"test_deny_all"},
+		Reason:   "test: deny all",
+	}, nil
+}
+
+func (e *denyAllEngine) PolicyHash() string     { return "sha256:test" }
+func (e *denyAllEngine) PolicyBundleID() string { return "test-bundle" }
+func (e *denyAllEngine) Version() string        { return "test/1.0" }
+
+// allowAllEngine is a test policy engine that allows all requests.
+type allowAllEngine struct{}
+
+func (e *allowAllEngine) Evaluate(_ context.Context, _ *policy.Input) (*policy.Decision, error) {
+	return &policy.Decision{
+		Allow:    true,
+		Decision: "allow",
+		RuleIDs:  []string{"test_allow_all"},
+	}, nil
+}
+
+func (e *allowAllEngine) PolicyHash() string     { return "sha256:test" }
+func (e *allowAllEngine) PolicyBundleID() string { return "test-bundle" }
+func (e *allowAllEngine) Version() string        { return "test/1.0" }
+
+// failingEngine is a test policy engine that always returns an error.
+type failingEngine struct{}
+
+func (e *failingEngine) Evaluate(_ context.Context, _ *policy.Input) (*policy.Decision, error) {
+	return nil, fmt.Errorf("policy engine unavailable")
+}
+
+func (e *failingEngine) PolicyHash() string     { return "" }
+func (e *failingEngine) PolicyBundleID() string { return "" }
+func (e *failingEngine) Version() string        { return "test-failing/1.0" }
+
+func TestAppendRecord_WithPolicyAllow(t *testing.T) {
+	ms := store.NewMemoryStore()
+	tree := merkle.New()
+	sig, err := signer.GenerateEd25519Signer()
+	if err != nil {
+		t.Fatalf("generating signer: %v", err)
+	}
+	ver := signer.NewEd25519Verifier(sig.PublicKey())
+
+	srv := api.NewServer(api.DefaultConfig(), ms, sig, []signer.Verifier{ver}, tree, &allowAllEngine{}, slog.Default())
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	body := validRecordJSON(t)
+	resp := mustPost(t, ts.URL+"/v1/records", "application/json", body)
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("expected 201 with allow policy, got %d", resp.StatusCode)
+	}
+}
+
+func TestAppendRecord_PolicyEngineError(t *testing.T) {
+	ms := store.NewMemoryStore()
+	tree := merkle.New()
+	sig, err := signer.GenerateEd25519Signer()
+	if err != nil {
+		t.Fatalf("generating signer: %v", err)
+	}
+	ver := signer.NewEd25519Verifier(sig.PublicKey())
+
+	srv := api.NewServer(api.DefaultConfig(), ms, sig, []signer.Verifier{ver}, tree, &failingEngine{}, slog.Default())
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	body := validRecordJSON(t)
+	resp := mustPost(t, ts.URL+"/v1/records", "application/json", body)
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusInternalServerError {
+		t.Fatalf("expected 500 with failing policy engine, got %d", resp.StatusCode)
+	}
+}

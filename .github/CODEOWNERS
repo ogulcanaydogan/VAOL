@@ -1,0 +1,14 @@
+# Default ownership
+* @ogulcanaydogan
+
+# Security-critical ownership
+/pkg/signer/ @ogulcanaydogan
+/pkg/verifier/ @ogulcanaydogan
+/pkg/merkle/ @ogulcanaydogan
+/pkg/record/ @ogulcanaydogan
+/pkg/policy/ @ogulcanaydogan
+/schemas/ @ogulcanaydogan
+/proto/ @ogulcanaydogan
+/tests/tamper/ @ogulcanaydogan
+/docs/threat-model.md @ogulcanaydogan
+/SECURITY.md @ogulcanaydogan

@@ -1,0 +1,181 @@
+# Default values for VAOL Helm chart.
+
+replicaCount: 1
+
+image:
+  repository: ghcr.io/yapay-ai/vaol-server
+  pullPolicy: IfNotPresent
+  tag: ""  # Defaults to Chart.appVersion
+
+imagePullSecrets: []
+nameOverride: ""
+fullnameOverride: ""
+
+serviceAccount:
+  create: true
+  annotations: {}
+  name: ""
+
+profile:
+  # Deployment profile: dev or production.
+  mode: dev
+  production:
+    authMode: required
+    policyMode: fail-closed
+    anchorMode: local
+    sigstoreRekorRequired: true
+    failOnStartupCheck: true
+
+server:
+  # Listening address
+  port: 8080
+  # Signing mode: ed25519, sigstore
+  signingMode: ed25519
+  # Path to Ed25519 private key (mounted from secret)
+  keyPath: /etc/vaol/keys/signing.pem
+  # External OPA policy engine URL (used when opa.enabled=false)
+  opaURL: ""
+  # OPA policy path
+  opaPolicy: v1/data/vaol/decision
+  # Policy mode: fail-closed or allow-all
+  policyMode: fail-closed
+  # Authentication mode: disabled, optional, required.
+  # Default is disabled for local bootstrap; set to required in production.
+  authMode: disabled
+  # JWT/OIDC options (used when authMode is optional/required)
+  jwtIssuer: ""
+  jwtAudience: ""
+  jwtTenantClaim: tenant_id
+  jwtSubjectClaim: sub
+  jwksFile: ""
+  jwksURL: ""
+  jwtHS256Secret: ""
+  # Startup integrity controls
+  rebuildOnStart: true
+  failOnStartupCheck: true
+  # Merkle checkpoint settings
+  checkpointEvery: 100
+  checkpointInterval: 5m
+  # Anchoring settings: off, local, http
+  anchorMode: local
+  anchorURL: ""
+  # Sigstore options
+  sigstoreRekorRequired: false
+  sigstoreFulcioURL: ""
+  sigstoreRekorURL: ""
+  # KMS options
+  kmsProvider: local-ecdsa
+  kmsKeyURI: local://vaol-signing
+  kmsEndpoint: ""
+  kmsAccessToken: ""
+  # Log level: debug, info, warn, error
+  logLevel: info
+
+proxy:
+  enabled: false
+  image:
+    repository: ghcr.io/yapay-ai/vaol-proxy
+    pullPolicy: IfNotPresent
+    tag: ""
+  port: 8443
+  # Upstream OpenAI-compatible API URL
+  upstreamURL: https://api.openai.com
+  replicaCount: 1
+  resources:
+    limits:
+      cpu: 500m
+      memory: 256Mi
+    requests:
+      cpu: 100m
+      memory: 128Mi
+
+opa:
+  enabled: true
+  image:
+    repository: openpolicyagent/opa
+    tag: "0.70.0-static"
+    pullPolicy: IfNotPresent
+  port: 8181
+  resources:
+    limits:
+      cpu: 200m
+      memory: 128Mi
+    requests:
+      cpu: 50m
+      memory: 64Mi
+
+postgresql:
+  # Set to false to use an external PostgreSQL
+  enabled: true
+  auth:
+    postgresPassword: vaol-secret
+    database: vaol
+  primary:
+    persistence:
+      enabled: true
+      size: 10Gi
+
+# External PostgreSQL configuration (used when postgresql.enabled=false)
+externalDatabase:
+  host: ""
+  port: 5432
+  database: vaol
+  user: vaol
+  password: ""
+  existingSecret: ""
+  existingSecretPasswordKey: password
+
+# Signing key configuration
+signingKey:
+  # Create a signing key secret from a PEM file
+  create: false
+  # Base64-encoded PEM private key (only used if create=true)
+  privateKeyPEM: ""
+  # Name of existing secret containing the signing key
+  existingSecret: ""
+  secretKey: signing.pem
+
+service:
+  type: ClusterIP
+  port: 8080
+
+ingress:
+  enabled: false
+  className: ""
+  annotations: {}
+  hosts:
+    - host: vaol.local
+      paths:
+        - path: /
+          pathType: Prefix
+  tls: []
+
+resources:
+  limits:
+    cpu: "1"
+    memory: 512Mi
+  requests:
+    cpu: 250m
+    memory: 256Mi
+
+autoscaling:
+  enabled: false
+  minReplicas: 1
+  maxReplicas: 10
+  targetCPUUtilizationPercentage: 80
+
+podAnnotations: {}
+podSecurityContext:
+  fsGroup: 65534
+
+securityContext:
+  readOnlyRootFilesystem: true
+  runAsNonRoot: true
+  runAsUser: 65534
+  capabilities:
+    drop:
+      - ALL
+
+nodeSelector: {}
+tolerations: []
+affinity: {}
