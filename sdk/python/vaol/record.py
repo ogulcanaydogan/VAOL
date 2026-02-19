@@ -5,20 +5,20 @@ from __future__ import annotations
 import hashlib
 import json
 import uuid
-from datetime import datetime, timezone
-from enum import Enum
+from datetime import UTC, datetime
+from enum import StrEnum
 from typing import Any
 
 from pydantic import BaseModel, Field
 
 
-class OutputMode(str, Enum):
+class OutputMode(StrEnum):
     HASH_ONLY = "hash_only"
     ENCRYPTED = "encrypted"
     PLAINTEXT = "plaintext"
 
 
-class PolicyDecision(str, Enum):
+class PolicyDecision(StrEnum):
     ALLOW = "allow"
     DENY = "deny"
     ALLOW_WITH_TRANSFORM = "allow_with_transform"
@@ -30,6 +30,7 @@ class Identity(BaseModel):
     subject: str
     subject_type: str = "user"
     claims: dict[str, str] = Field(default_factory=dict)
+
 
 class AuthContext(BaseModel):
     issuer: str = ""
@@ -114,7 +115,7 @@ class DecisionRecord(BaseModel):
 
     schema_version: str = "v1"
     request_id: str = Field(default_factory=lambda: str(uuid.uuid4()))
-    timestamp: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
+    timestamp: str = Field(default_factory=lambda: datetime.now(UTC).isoformat())
     identity: Identity
     auth_context: AuthContext | None = None
     model: ModelInfo

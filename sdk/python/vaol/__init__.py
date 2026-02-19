@@ -10,9 +10,9 @@ from vaol.wrapper import instrument_openai
 
 __version__ = "0.1.0"
 __all__ = [
-    "VAOLClient",
     "DecisionRecord",
     "OutputMode",
     "PolicyDecision",
+    "VAOLClient",
     "instrument_openai",
 ]
