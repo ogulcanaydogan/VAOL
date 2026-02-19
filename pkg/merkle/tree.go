@@ -3,7 +3,6 @@
 package merkle
 
 import (
-	"encoding/hex"
 	"fmt"
 	"math/bits"
 	"sync"
@@ -219,9 +218,4 @@ func largestPowerOf2LessThan(n int64) int64 {
 		return 0
 	}
 	return 1 << (bits.Len64(uint64(n-1)) - 1)
-}
-
-// hashToHex converts raw hash bytes to hex string (utility for debugging).
-func hashToHex(h []byte) string {
-	return hex.EncodeToString(h)
 }

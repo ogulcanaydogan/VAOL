@@ -36,8 +36,8 @@ func (r *Report) ToMarkdown() string {
 	b.WriteString(fmt.Sprintf("**Generated:** %s\n\n", r.Generated.Format(time.RFC3339)))
 
 	b.WriteString("## Summary\n\n")
-	b.WriteString(fmt.Sprintf("| Metric | Value |\n"))
-	b.WriteString(fmt.Sprintf("|--------|-------|\n"))
+	b.WriteString("| Metric | Value |\n")
+	b.WriteString("|--------|-------|\n")
 	b.WriteString(fmt.Sprintf("| Total records | %d |\n", r.Bundle.TotalRecords))
 	b.WriteString(fmt.Sprintf("| Valid records | %d |\n", r.Bundle.ValidRecords))
 	b.WriteString(fmt.Sprintf("| Invalid records | %d |\n", r.Bundle.InvalidRecords))

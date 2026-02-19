@@ -69,7 +69,9 @@ func main() {
 	<-ctx.Done()
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	srv.Shutdown(shutdownCtx)
+	if err := srv.Shutdown(shutdownCtx); err != nil {
+		logger.Error("proxy shutdown failed", "error", err)
+	}
 }
 
 // Proxy is the OpenAI-compatible transparent proxy.
@@ -139,7 +141,10 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	w.WriteHeader(resp.StatusCode)
-	w.Write(respBody)
+	if _, err := w.Write(respBody); err != nil {
+		p.logger.Error("failed to write upstream response", "error", err)
+		return
+	}
 
 	// Asynchronously emit DecisionRecord to VAOL server
 	go p.emitRecord(requestID, reqBody, respBody, latency, r.URL.Path)
@@ -152,7 +157,9 @@ func (p *Proxy) emitRecord(requestID uuid.UUID, reqBody, respBody []byte, latenc
 		Temperature float64 `json:"temperature"`
 		MaxTokens   int     `json:"max_tokens"`
 	}
-	json.Unmarshal(reqBody, &chatReq)
+	if err := json.Unmarshal(reqBody, &chatReq); err != nil {
+		p.logger.Warn("failed to parse request body for model metadata", "error", err)
+	}
 
 	rec := record.New()
 	rec.RequestID = requestID

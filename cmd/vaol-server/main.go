@@ -183,7 +183,9 @@ func main() {
 
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10_000_000_000)
 	defer cancel()
-	srv.Shutdown(shutdownCtx)
+	if err := srv.Shutdown(shutdownCtx); err != nil {
+		logger.Error("shutdown failed", "error", err)
+	}
 }
 
 func buildSignerAndVerifiers(

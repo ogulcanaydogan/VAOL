@@ -50,7 +50,9 @@ func TestMemoryStoreDuplicateRequestID(t *testing.T) {
 	s := NewMemoryStore()
 
 	rec := makeTestStoredRecord()
-	s.Append(ctx, rec)
+	if _, err := s.Append(ctx, rec); err != nil {
+		t.Fatalf("Append error: %v", err)
+	}
 
 	rec2 := makeTestStoredRecord()
 	rec2.RequestID = rec.RequestID // duplicate
@@ -87,9 +89,13 @@ func TestMemoryStoreGetLatest(t *testing.T) {
 
 	// Add records
 	rec1 := makeTestStoredRecord()
-	s.Append(ctx, rec1)
+	if _, err := s.Append(ctx, rec1); err != nil {
+		t.Fatalf("Append rec1 error: %v", err)
+	}
 	rec2 := makeTestStoredRecord()
-	s.Append(ctx, rec2)
+	if _, err := s.Append(ctx, rec2); err != nil {
+		t.Fatalf("Append rec2 error: %v", err)
+	}
 
 	latest, err := s.GetLatest(ctx)
 	if err != nil {
@@ -108,12 +114,16 @@ func TestMemoryStoreList(t *testing.T) {
 	for i := 0; i < 5; i++ {
 		rec := makeTestStoredRecord()
 		rec.TenantID = "tenant-a"
-		s.Append(ctx, rec)
+		if _, err := s.Append(ctx, rec); err != nil {
+			t.Fatalf("Append tenant-a record %d error: %v", i, err)
+		}
 	}
 	for i := 0; i < 3; i++ {
 		rec := makeTestStoredRecord()
 		rec.TenantID = "tenant-b"
-		s.Append(ctx, rec)
+		if _, err := s.Append(ctx, rec); err != nil {
+			t.Fatalf("Append tenant-b record %d error: %v", i, err)
+		}
 	}
 
 	// List all
@@ -150,7 +160,9 @@ func TestMemoryStoreListWithCursor(t *testing.T) {
 
 	for i := 0; i < 5; i++ {
 		rec := makeTestStoredRecord()
-		s.Append(ctx, rec)
+		if _, err := s.Append(ctx, rec); err != nil {
+			t.Fatalf("Append record %d error: %v", i, err)
+		}
 	}
 
 	// Get first 2
@@ -180,7 +192,9 @@ func TestMemoryStoreCount(t *testing.T) {
 	}
 
 	for i := 0; i < 3; i++ {
-		s.Append(ctx, makeTestStoredRecord())
+		if _, err := s.Append(ctx, makeTestStoredRecord()); err != nil {
+			t.Fatalf("Append record %d error: %v", i, err)
+		}
 	}
 
 	count, _ = s.Count(ctx)
@@ -201,7 +215,10 @@ func TestMemoryStoreSequentialSequenceNumbers(t *testing.T) {
 	s := NewMemoryStore()
 
 	for i := 0; i < 10; i++ {
-		seq, _ := s.Append(ctx, makeTestStoredRecord())
+		seq, err := s.Append(ctx, makeTestStoredRecord())
+		if err != nil {
+			t.Fatalf("Append record %d error: %v", i, err)
+		}
 		if seq != int64(i) {
 			t.Errorf("sequence %d = %d", i, seq)
 		}

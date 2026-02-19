@@ -209,7 +209,7 @@ func scanRecord(rows pgx.Rows) (*StoredRecord, error) {
 
 func isDuplicateKeyError(err error) bool {
 	// pgx wraps errors; check for unique_violation (23505)
-	return err != nil && (errors.Is(err, context.DeadlineExceeded) == false) &&
+	return err != nil && !errors.Is(err, context.DeadlineExceeded) &&
 		containsString(err.Error(), "23505")
 }
 
@@ -481,7 +481,9 @@ func (s *PostgresStore) DeleteExpiredEncryptedPayloads(ctx context.Context, befo
 	if err != nil {
 		return nil, fmt.Errorf("starting transaction: %w", err)
 	}
-	defer tx.Rollback(ctx)
+	defer func() {
+		_ = tx.Rollback(ctx)
+	}()
 
 	rows, err := tx.Query(ctx, `
 		SELECT request_id, tenant_id, ciphertext_hash, encryption_key_id

@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -103,6 +104,13 @@ func mustGetWithHeaders(t *testing.T, url string, headers map[string]string) *ht
 	return resp
 }
 
+func decodeJSON(t *testing.T, r io.Reader, v any) {
+	t.Helper()
+	if err := json.NewDecoder(r).Decode(v); err != nil {
+		t.Fatalf("decode JSON: %v", err)
+	}
+}
+
 // validRecordJSON returns a minimal valid DecisionRecord JSON body.
 func validRecordJSON(t *testing.T) []byte {
 	t.Helper()
@@ -149,7 +157,7 @@ func TestAppendRecord(t *testing.T) {
 
 	if resp.StatusCode != http.StatusCreated {
 		var errBody map[string]string
-		json.NewDecoder(resp.Body).Decode(&errBody)
+		decodeJSON(t, resp.Body, &errBody)
 		t.Fatalf("expected 201 Created, got %d: %v", resp.StatusCode, errBody)
 	}
 
@@ -219,7 +227,7 @@ func TestGetRecord(t *testing.T) {
 	body := validRecordJSON(t)
 	resp := mustPost(t, ts.URL+"/v1/records", "application/json", body)
 	var receipt record.Receipt
-	json.NewDecoder(resp.Body).Decode(&receipt)
+	decodeJSON(t, resp.Body, &receipt)
 	resp.Body.Close()
 
 	resp2 := mustGet(t, ts.URL+"/v1/records/"+receipt.RequestID.String())
@@ -305,7 +313,7 @@ func TestListRecords(t *testing.T) {
 		Records []json.RawMessage `json:"records"`
 		Count   int               `json:"count"`
 	}
-	json.NewDecoder(resp.Body).Decode(&result)
+	decodeJSON(t, resp.Body, &result)
 	if result.Count != 3 {
 		t.Errorf("expected 3 records, got %d", result.Count)
 	}
@@ -351,7 +359,7 @@ func TestListRecords_WithTenantFilter(t *testing.T) {
 		Records []json.RawMessage `json:"records"`
 		Count   int               `json:"count"`
 	}
-	json.NewDecoder(resp.Body).Decode(&result)
+	decodeJSON(t, resp.Body, &result)
 	if result.Count != 2 {
 		t.Errorf("expected 2 records for test-tenant, got %d", result.Count)
 	}
@@ -363,7 +371,7 @@ func TestListRecords_WithTenantFilter(t *testing.T) {
 	var result2 struct {
 		Count int `json:"count"`
 	}
-	json.NewDecoder(resp2.Body).Decode(&result2)
+	decodeJSON(t, resp2.Body, &result2)
 	if result2.Count != 0 {
 		t.Errorf("expected 0 records for non-existent tenant, got %d", result2.Count)
 	}
@@ -376,7 +384,7 @@ func TestGetProof(t *testing.T) {
 	body := validRecordJSON(t)
 	resp := mustPost(t, ts.URL+"/v1/records", "application/json", body)
 	var receipt record.Receipt
-	json.NewDecoder(resp.Body).Decode(&receipt)
+	decodeJSON(t, resp.Body, &receipt)
 	resp.Body.Close()
 
 	resp2 := mustGet(t, ts.URL+"/v1/records/"+receipt.RequestID.String()+"/proof")
@@ -387,7 +395,7 @@ func TestGetProof(t *testing.T) {
 	}
 
 	var proof merkle.Proof
-	json.NewDecoder(resp2.Body).Decode(&proof)
+	decodeJSON(t, resp2.Body, &proof)
 	if proof.ProofType != merkle.ProofTypeInclusion {
 		t.Errorf("expected inclusion proof, got %s", proof.ProofType)
 	}
@@ -400,7 +408,7 @@ func TestGetProofByID(t *testing.T) {
 	body := validRecordJSON(t)
 	resp := mustPost(t, ts.URL+"/v1/records", "application/json", body)
 	var receipt record.Receipt
-	json.NewDecoder(resp.Body).Decode(&receipt)
+	decodeJSON(t, resp.Body, &receipt)
 	resp.Body.Close()
 
 	if receipt.InclusionProofRef == "" {
@@ -458,12 +466,12 @@ func TestVerifyRecord(t *testing.T) {
 	body := validRecordJSON(t)
 	resp := mustPost(t, ts.URL+"/v1/records", "application/json", body)
 	var receipt record.Receipt
-	json.NewDecoder(resp.Body).Decode(&receipt)
+	decodeJSON(t, resp.Body, &receipt)
 	resp.Body.Close()
 
 	resp2 := mustGet(t, ts.URL+"/v1/records/"+receipt.RequestID.String())
 	var stored store.StoredRecord
-	json.NewDecoder(resp2.Body).Decode(&stored)
+	decodeJSON(t, resp2.Body, &stored)
 	resp2.Body.Close()
 
 	envJSON, _ := json.Marshal(stored.Envelope)
@@ -475,7 +483,7 @@ func TestVerifyRecord(t *testing.T) {
 	}
 
 	var result map[string]any
-	json.NewDecoder(resp3.Body).Decode(&result)
+	decodeJSON(t, resp3.Body, &result)
 	if result["valid"] != true {
 		t.Errorf("expected valid=true, got %v", result["valid"])
 	}
@@ -497,7 +505,7 @@ func TestCheckpoint(t *testing.T) {
 	}
 
 	var cp map[string]any
-	json.NewDecoder(resp.Body).Decode(&cp)
+	decodeJSON(t, resp.Body, &cp)
 	if cp["tree_size"].(float64) < 1 {
 		t.Error("tree_size should be >= 1 after appending a record")
 	}
@@ -554,7 +562,7 @@ func TestExport(t *testing.T) {
 	}
 
 	var bundle map[string]any
-	json.NewDecoder(resp.Body).Decode(&bundle)
+	decodeJSON(t, resp.Body, &bundle)
 	records := bundle["records"].([]any)
 	if len(records) != 3 {
 		t.Errorf("expected 3 records in export, got %d", len(records))
@@ -643,7 +651,7 @@ func TestHealth(t *testing.T) {
 	}
 
 	var health map[string]any
-	json.NewDecoder(resp.Body).Decode(&health)
+	decodeJSON(t, resp.Body, &health)
 	if health["status"] != "ok" {
 		t.Errorf("expected status=ok, got %v", health["status"])
 	}
@@ -714,7 +722,7 @@ func TestHashChainIntegrity(t *testing.T) {
 		body := validRecordJSON(t)
 		resp := mustPost(t, ts.URL+"/v1/records", "application/json", body)
 		var receipt record.Receipt
-		json.NewDecoder(resp.Body).Decode(&receipt)
+		decodeJSON(t, resp.Body, &receipt)
 		resp.Body.Close()
 		receipts = append(receipts, receipt)
 	}
@@ -722,13 +730,13 @@ func TestHashChainIntegrity(t *testing.T) {
 	for _, r := range receipts {
 		resp := mustGet(t, ts.URL+"/v1/records/"+r.RequestID.String())
 		var stored store.StoredRecord
-		json.NewDecoder(resp.Body).Decode(&stored)
+		decodeJSON(t, resp.Body, &stored)
 		resp.Body.Close()
 
 		envJSON, _ := json.Marshal(stored.Envelope)
 		vResp := mustPost(t, ts.URL+"/v1/verify", "application/json", envJSON)
 		var result map[string]any
-		json.NewDecoder(vResp.Body).Decode(&result)
+		decodeJSON(t, vResp.Body, &result)
 		vResp.Body.Close()
 
 		if result["valid"] != true {

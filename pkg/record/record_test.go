@@ -62,7 +62,9 @@ func TestDecisionRecordOptionalRAGContext(t *testing.T) {
 
 	// rag_context should be omitted
 	var raw map[string]any
-	json.Unmarshal(data, &raw)
+	if err := json.Unmarshal(data, &raw); err != nil {
+		t.Fatalf("Unmarshal error: %v", err)
+	}
 	if _, ok := raw["rag_context"]; ok {
 		t.Error("rag_context should be omitted when nil")
 	}
@@ -86,7 +88,9 @@ func TestDecisionRecordWithRAGContext(t *testing.T) {
 	}
 
 	var decoded DecisionRecord
-	json.Unmarshal(data, &decoded)
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		t.Fatalf("Unmarshal error: %v", err)
+	}
 	if decoded.RAGContext == nil {
 		t.Fatal("RAGContext should not be nil")
 	}

@@ -317,6 +317,8 @@ func BenchmarkInclusionProof(b *testing.B) {
 	size := tree.Size()
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		tree.InclusionProof(int64(i%10000), size)
+		if _, err := tree.InclusionProof(int64(i%10000), size); err != nil {
+			b.Fatalf("InclusionProof failed: %v", err)
+		}
 	}
 }

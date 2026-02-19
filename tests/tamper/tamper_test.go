@@ -436,7 +436,9 @@ func TestTamper_FullLifecycleIntegrity(t *testing.T) {
 			Envelope:           env,
 			MerkleLeafIndex:    leafIdx,
 		}
-		memStore.Append(ctx, stored)
+		if _, err := memStore.Append(ctx, stored); err != nil {
+			t.Fatalf("append stored record %d: %v", i, err)
+		}
 
 		records[i] = rec
 		envelopes[i] = env

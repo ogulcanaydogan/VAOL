@@ -81,7 +81,10 @@ func (p *proxyHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	w.WriteHeader(resp.StatusCode)
-	w.Write(respBody)
+	if _, err := w.Write(respBody); err != nil {
+		p.logger.Error("failed to write proxy response", "error", err)
+		return
+	}
 
 	// Synchronous emission for test determinism
 	p.emitRecord(requestID, reqBody, respBody, latency)
@@ -91,7 +94,9 @@ func (p *proxyHandler) emitRecord(requestID uuid.UUID, reqBody, respBody []byte,
 	var chatReq struct {
 		Model string `json:"model"`
 	}
-	json.Unmarshal(reqBody, &chatReq)
+	if err := json.Unmarshal(reqBody, &chatReq); err != nil {
+		p.logger.Warn("failed to parse chat request body", "error", err)
+	}
 
 	rec := record.New()
 	rec.RequestID = requestID
@@ -138,9 +143,16 @@ func TestProxyIntegration(t *testing.T) {
 			return
 		}
 
-		body, _ := io.ReadAll(r.Body)
+		body, err := io.ReadAll(r.Body)
+		if err != nil {
+			http.Error(w, "failed to read request", http.StatusBadRequest)
+			return
+		}
 		var req map[string]any
-		json.Unmarshal(body, &req)
+		if err := json.Unmarshal(body, &req); err != nil {
+			http.Error(w, "invalid request JSON", http.StatusBadRequest)
+			return
+		}
 
 		response := map[string]any{
 			"id":      "chatcmpl-test123",
@@ -165,7 +177,9 @@ func TestProxyIntegration(t *testing.T) {
 		}
 
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(response)
+		if err := json.NewEncoder(w).Encode(response); err != nil {
+			t.Logf("failed to encode response: %v", err)
+		}
 	}))
 	defer mockUpstream.Close()
 
@@ -258,7 +272,9 @@ func TestProxyIntegration(t *testing.T) {
 	defer verifyResp.Body.Close()
 
 	var verifyResult map[string]any
-	json.NewDecoder(verifyResp.Body).Decode(&verifyResult)
+	if err := json.NewDecoder(verifyResp.Body).Decode(&verifyResult); err != nil {
+		t.Fatalf("decode verify response: %v", err)
+	}
 	if verifyResult["valid"] != true {
 		t.Errorf("expected valid=true, got %v", verifyResult["valid"])
 	}
@@ -268,8 +284,15 @@ func TestProxyMultipleRequests(t *testing.T) {
 	// Mock upstream
 	mockUpstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var req map[string]any
-		body, _ := io.ReadAll(r.Body)
-		json.Unmarshal(body, &req)
+		body, err := io.ReadAll(r.Body)
+		if err != nil {
+			http.Error(w, "failed to read request", http.StatusBadRequest)
+			return
+		}
+		if err := json.Unmarshal(body, &req); err != nil {
+			http.Error(w, "invalid request JSON", http.StatusBadRequest)
+			return
+		}
 
 		response := map[string]any{
 			"id":    fmt.Sprintf("chatcmpl-%d", time.Now().UnixNano()),
@@ -279,7 +302,9 @@ func TestProxyMultipleRequests(t *testing.T) {
 			},
 		}
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(response)
+		if err := json.NewEncoder(w).Encode(response); err != nil {
+			t.Logf("failed to encode response: %v", err)
+		}
 	}))
 	defer mockUpstream.Close()
 
@@ -339,7 +364,9 @@ func TestProxyMultipleRequests(t *testing.T) {
 			t.Fatalf("verify %d: %v", i, err)
 		}
 		var result map[string]any
-		json.NewDecoder(resp.Body).Decode(&result)
+		if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+			t.Fatalf("decode verify result %d: %v", i, err)
+		}
 		resp.Body.Close()
 		if result["valid"] != true {
 			t.Errorf("record %d: expected valid, got %v", i, result["valid"])
