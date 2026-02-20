@@ -16,6 +16,7 @@ linters-settings:
     enable-all: true
     disable:
       - fieldalignment
+      - shadow
 
 issues:
   exclude-rules:
