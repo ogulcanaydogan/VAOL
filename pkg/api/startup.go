@@ -22,21 +22,54 @@ func (s *Server) rebuildMerkleTreeFromStore(ctx context.Context) error {
 		return nil
 	}
 
+	rebuilt := merkle.New()
+	const pageSize = 500
+	cursor := int64(-1)
+	rebuiltCount := int64(0)
+
+	for {
+		records, err := s.store.List(ctx, store.ListFilter{
+			Limit:  pageSize,
+			Cursor: cursor,
+		})
+		if err != nil {
+			return fmt.Errorf("listing records during rebuild: %w", err)
+		}
+
+		if len(records) == 0 {
+			break
+		}
+
+		for _, rec := range records {
+			if rec.SequenceNumber <= cursor {
+				return fmt.Errorf("non-increasing sequence during rebuild: cursor=%d seq=%d", cursor, rec.SequenceNumber)
+			}
+
+			idx := rebuilt.Append([]byte(rec.RecordHash))
+			if rec.MerkleLeafIndex != idx {
+				return fmt.Errorf(
+					"merkle leaf index mismatch at seq=%d: stored=%d rebuilt=%d",
+					rec.SequenceNumber,
+					rec.MerkleLeafIndex,
+					idx,
+				)
+			}
+
+			cursor = rec.SequenceNumber
+			rebuiltCount++
+		}
+
+		if len(records) < pageSize {
+			break
+		}
+	}
+
 	count, err := s.store.Count(ctx)
 	if err != nil {
 		return fmt.Errorf("counting stored records: %w", err)
 	}
-
-	rebuilt := merkle.New()
-	for seq := int64(0); seq < count; seq++ {
-		rec, err := s.store.GetBySequence(ctx, seq)
-		if err != nil {
-			return fmt.Errorf("loading record sequence %d during rebuild: %w", seq, err)
-		}
-		idx := rebuilt.Append([]byte(rec.RecordHash))
-		if rec.MerkleLeafIndex != idx {
-			return fmt.Errorf("merkle leaf index mismatch at seq=%d: stored=%d rebuilt=%d", seq, rec.MerkleLeafIndex, idx)
-		}
+	if rebuiltCount != count {
+		return fmt.Errorf("rebuild count mismatch: listed=%d counted=%d", rebuiltCount, count)
 	}
 
 	cp, err := s.store.GetLatestCheckpoint(ctx)
