@@ -190,7 +190,10 @@ func (p *Proxy) emitRecord(requestID uuid.UUID, reqBody, respBody []byte, latenc
 	}
 
 	vaolURL := fmt.Sprintf("%s/v1/records", p.vaolServer)
-	req, err := http.NewRequest(http.MethodPost, vaolURL, bytes.NewReader(recJSON))
+	reqCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+
+	req, err := http.NewRequestWithContext(reqCtx, http.MethodPost, vaolURL, bytes.NewReader(recJSON))
 	if err != nil {
 		p.logger.Error("failed to build VAOL request", "error", err)
 		return

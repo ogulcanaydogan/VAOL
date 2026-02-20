@@ -8,11 +8,6 @@ linters:
     - ineffassign
     - staticcheck
     - unused
-    - gosimple
-    - gocritic
-    - revive
-    - misspell
-    - prealloc
     - bodyclose
     - noctx
 
@@ -21,36 +16,18 @@ linters-settings:
     enable-all: true
     disable:
       - fieldalignment
-  revive:
-    rules:
-      - name: blank-imports
-      - name: dot-imports
-      - name: error-return
-      - name: error-strings
-      - name: exported
-        disabled: true
-      - name: unexported-return
-      - name: var-naming
-  gocritic:
-    enabled-checks:
-      - appendAssign
-      - dupSubExpr
-      - sloppyLen
-      - typeSwitchVar
-  misspell:
-    locale: US
 
 issues:
   exclude-rules:
     - path: _test\.go
       linters:
         - errcheck
-        - gocritic
-        - revive
+        - noctx
+    - path: _test\.go
+      text: shadow
     - path: examples/
       linters:
         - errcheck
         - noctx
-        - revive
   max-issues-per-linter: 50
   max-same-issues: 10

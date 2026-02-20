@@ -16,6 +16,7 @@ SERVER_URL="http://${SERVER_ADDR}"
 TENANT_ID="${VAOL_DEMO_TENANT:-acme-health-${RUN_ID}}"
 OPA_POLICY="${VAOL_DEMO_OPA_POLICY:-v1/data/vaol/mandatory_citations}"
 KEEP_STACK="${VAOL_DEMO_KEEP_STACK:-0}"
+RESET_STATE="${VAOL_DEMO_RESET_STATE:-1}"
 DSN="${VAOL_DEMO_DSN:-postgres://vaol:vaol@localhost:5432/vaol?sslmode=disable}"
 
 mkdir -p "${KEY_DIR}" "${LOG_DIR}" "${ARTIFACT_DIR}"
@@ -33,6 +34,14 @@ ensure_docker_ready() {
   if ! docker info >/dev/null 2>&1; then
     echo "docker daemon is not ready. Start or unpause Docker Desktop and retry." >&2
     exit 1
+  fi
+}
+
+print_server_log_tail() {
+  if [[ -f "${LOG_DIR}/vaol-server.log" ]]; then
+    echo "--- vaol-server.log (last 120 lines) ---" >&2
+    tail -n 120 "${LOG_DIR}/vaol-server.log" >&2 || true
+    echo "--- end vaol-server.log ---" >&2
   fi
 }
 
@@ -61,6 +70,9 @@ echo "[demo] generating signing key pair..."
 "${BIN_DIR}/vaol" keys generate --output "${KEY_DIR}" >"${LOG_DIR}/keygen.log" 2>&1
 
 echo "[demo] starting postgres + opa dependencies..."
+if [[ "${RESET_STATE}" == "1" ]]; then
+  docker compose -f "${COMPOSE_FILE}" down -v >/dev/null 2>&1 || true
+fi
 docker compose -f "${COMPOSE_FILE}" up -d postgres opa >/dev/null
 
 echo "[demo] waiting for postgres..."
@@ -84,16 +96,25 @@ echo "[demo] starting vaol-server locally..."
 SERVER_PID=$!
 
 echo "[demo] waiting for vaol-server health..."
+HEALTH_READY=0
 for _ in $(seq 1 40); do
   if curl -fsS "${SERVER_URL}/v1/health" >/dev/null 2>&1; then
+    HEALTH_READY=1
     break
   fi
   if ! kill -0 "${SERVER_PID}" >/dev/null 2>&1; then
     echo "vaol-server exited unexpectedly. See ${LOG_DIR}/vaol-server.log" >&2
+    print_server_log_tail
     exit 1
   fi
   sleep 1
 done
+
+if [[ "${HEALTH_READY}" != "1" ]]; then
+  echo "timed out waiting for vaol-server health endpoint (${SERVER_URL}/v1/health)" >&2
+  print_server_log_tail
+  exit 1
+fi
 
 COMPLIANT_REQ="${ARTIFACT_DIR}/request-compliant.json"
 DENIED_REQ="${ARTIFACT_DIR}/request-denied.json"
