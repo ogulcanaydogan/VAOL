@@ -2,11 +2,19 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, cast
 
 import httpx
 
 from vaol.record import DecisionRecord
+
+
+def _decode_json_object(resp: httpx.Response) -> dict[str, Any]:
+    """Decode JSON payloads as object responses for strict typing."""
+    body = resp.json()
+    if not isinstance(body, dict):
+        raise TypeError("expected JSON object response")
+    return cast(dict[str, Any], body)
 
 
 class VAOLClient:
@@ -35,13 +43,13 @@ class VAOLClient:
         tenant_header = self._tenant_headers(record.identity.tenant_id)
         resp = self._client.post("/v1/records", json=record.to_dict(), headers=tenant_header)
         resp.raise_for_status()
-        return resp.json()
+        return _decode_json_object(resp)
 
     def get(self, request_id: str) -> dict[str, Any]:
         """Retrieve a record by request ID."""
         resp = self._client.get(f"/v1/records/{request_id}", headers=self._tenant_headers())
         resp.raise_for_status()
-        return resp.json()
+        return _decode_json_object(resp)
 
     def list(
         self,
@@ -64,19 +72,19 @@ class VAOLClient:
 
         resp = self._client.get("/v1/records", params=params, headers=self._tenant_headers(tenant_id))
         resp.raise_for_status()
-        return resp.json()
+        return _decode_json_object(resp)
 
     def get_proof(self, request_id: str) -> dict[str, Any]:
         """Get the Merkle inclusion proof for a record."""
         resp = self._client.get(f"/v1/records/{request_id}/proof", headers=self._tenant_headers())
         resp.raise_for_status()
-        return resp.json()
+        return _decode_json_object(resp)
 
     def verify(self, envelope: dict[str, Any]) -> dict[str, Any]:
         """Verify a DSSE envelope."""
         resp = self._client.post("/v1/verify", json=envelope)
         resp.raise_for_status()
-        return resp.json()
+        return _decode_json_object(resp)
 
     def export(
         self,
@@ -96,19 +104,19 @@ class VAOLClient:
 
         resp = self._client.post("/v1/export", json=body, headers=self._tenant_headers(tenant_id))
         resp.raise_for_status()
-        return resp.json()
+        return _decode_json_object(resp)
 
     def health(self) -> dict[str, Any]:
         """Check server health."""
         resp = self._client.get("/v1/health")
         resp.raise_for_status()
-        return resp.json()
+        return _decode_json_object(resp)
 
     def checkpoint(self) -> dict[str, Any]:
         """Get the latest Merkle checkpoint."""
         resp = self._client.get("/v1/ledger/checkpoint")
         resp.raise_for_status()
-        return resp.json()
+        return _decode_json_object(resp)
 
     def close(self) -> None:
         """Close the HTTP client."""
@@ -153,13 +161,13 @@ class AsyncVAOLClient:
         tenant_header = self._tenant_headers(record.identity.tenant_id)
         resp = await self._client.post("/v1/records", json=record.to_dict(), headers=tenant_header)
         resp.raise_for_status()
-        return resp.json()
+        return _decode_json_object(resp)
 
     async def get(self, request_id: str) -> dict[str, Any]:
         """Retrieve a record by request ID."""
         resp = await self._client.get(f"/v1/records/{request_id}", headers=self._tenant_headers())
         resp.raise_for_status()
-        return resp.json()
+        return _decode_json_object(resp)
 
     async def list(
         self,
@@ -182,19 +190,19 @@ class AsyncVAOLClient:
 
         resp = await self._client.get("/v1/records", params=params, headers=self._tenant_headers(tenant_id))
         resp.raise_for_status()
-        return resp.json()
+        return _decode_json_object(resp)
 
     async def get_proof(self, request_id: str) -> dict[str, Any]:
         """Get the Merkle inclusion proof for a record."""
         resp = await self._client.get(f"/v1/records/{request_id}/proof", headers=self._tenant_headers())
         resp.raise_for_status()
-        return resp.json()
+        return _decode_json_object(resp)
 
     async def verify(self, envelope: dict[str, Any]) -> dict[str, Any]:
         """Verify a DSSE envelope."""
         resp = await self._client.post("/v1/verify", json=envelope)
         resp.raise_for_status()
-        return resp.json()
+        return _decode_json_object(resp)
 
     async def export(
         self,
@@ -214,19 +222,19 @@ class AsyncVAOLClient:
 
         resp = await self._client.post("/v1/export", json=body, headers=self._tenant_headers(tenant_id))
         resp.raise_for_status()
-        return resp.json()
+        return _decode_json_object(resp)
 
     async def health(self) -> dict[str, Any]:
         """Check server health."""
         resp = await self._client.get("/v1/health")
         resp.raise_for_status()
-        return resp.json()
+        return _decode_json_object(resp)
 
     async def checkpoint(self) -> dict[str, Any]:
         """Get the latest Merkle checkpoint."""
         resp = await self._client.get("/v1/ledger/checkpoint")
         resp.raise_for_status()
-        return resp.json()
+        return _decode_json_object(resp)
 
     async def close(self) -> None:
         """Close the HTTP client."""

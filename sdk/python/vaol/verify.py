@@ -13,7 +13,6 @@ from typing import Any
 
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
 
-
 # ---------------------------------------------------------------------------
 # DSSE helpers
 # ---------------------------------------------------------------------------
