@@ -69,7 +69,7 @@ dockers:
     image_templates:
       - "ghcr.io/ogulcanaydogan/vaol-server:{{ .Tag }}"
       - "ghcr.io/ogulcanaydogan/vaol-server:latest"
-    dockerfile: deploy/docker/Dockerfile.server
+    dockerfile: deploy/docker/Dockerfile.release.server
     build_flag_templates:
       - "--platform=linux/amd64"
 
@@ -79,7 +79,7 @@ dockers:
     image_templates:
       - "ghcr.io/ogulcanaydogan/vaol-proxy:{{ .Tag }}"
       - "ghcr.io/ogulcanaydogan/vaol-proxy:latest"
-    dockerfile: deploy/docker/Dockerfile.proxy
+    dockerfile: deploy/docker/Dockerfile.release.proxy
     build_flag_templates:
       - "--platform=linux/amd64"
 
