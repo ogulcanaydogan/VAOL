@@ -5,6 +5,17 @@ All notable changes to VAOL will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.1] - 2026-02-20
+
+### Fixed
+
+- **Version injection** — All three Go binaries (`vaol-server`, `vaol-cli`, `vaol-proxy`) now accept build-time `version`, `commit`, and `date` variables via ldflags, matching `.goreleaser.yml` configuration. The `/v1/health` endpoint and `X-VAOL-Version` header are now dynamic instead of hardcoded.
+- **SDK version sync** — Bumped Python SDK (`pyproject.toml`, `__init__.py`), TypeScript SDK (`package.json`), and API reference docs from 0.2.0 to 0.3.0.
+
+### Added
+
+- **TypeScript wrapper tests** — 13 dedicated tests for `instrumentOpenAI()` in `sdk/typescript/tests/wrapper.test.ts`, matching Python SDK `test_wrapper.py` coverage: client validation, method replacement, response forwarding, record emission, prompt/output hashing, token counts, model/temperature capture, error resilience, finish reason, latency, and onError callback.
+
 ## [0.3.0] - 2026-02-20
 
 ### Added
@@ -71,6 +82,7 @@ Initial public release of the Verifiable AI Output Ledger.
 - Startup Merkle rebuild with checkpoint/root validation.
 - Tenant-bound API access with cross-tenant rejection.
 
+[0.3.1]: https://github.com/ogulcanaydogan/vaol/releases/tag/v0.3.1
 [0.3.0]: https://github.com/ogulcanaydogan/vaol/releases/tag/v0.3.0
 [0.2.0]: https://github.com/ogulcanaydogan/vaol/releases/tag/v0.2.0
 [0.1.0]: https://github.com/ogulcanaydogan/vaol/releases/tag/v0.1.0

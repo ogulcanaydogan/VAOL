@@ -19,6 +19,13 @@ import (
 	"github.com/ogulcanaydogan/vaol/pkg/store"
 )
 
+// Build-time variables injected via ldflags.
+var (
+	version = "dev"
+	commit  = "none"
+	date    = "unknown"
+)
+
 func main() {
 	var (
 		addr               = flag.String("addr", ":8080", "server listen address")
@@ -146,6 +153,7 @@ func main() {
 
 	// Server
 	cfg := api.Config{
+		Version:            version,
 		Addr:               *addr,
 		WebDir:             *webDir,
 		CheckpointEvery:    *checkpointEvery,
@@ -178,7 +186,7 @@ func main() {
 		}
 	}()
 
-	fmt.Fprintf(os.Stderr, "VAOL server listening on %s\n", *addr)
+	fmt.Fprintf(os.Stderr, "VAOL server %s (%s, %s) listening on %s\n", version, commit, date, *addr)
 	<-ctx.Done()
 
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10_000_000_000)

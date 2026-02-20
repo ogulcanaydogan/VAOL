@@ -23,6 +23,13 @@ import (
 	"github.com/ogulcanaydogan/vaol/pkg/record"
 )
 
+// Build-time variables injected via ldflags.
+var (
+	version = "dev"
+	commit  = "none"
+	date    = "unknown"
+)
+
 func main() {
 	var (
 		addr       = flag.String("addr", ":8443", "proxy listen address")

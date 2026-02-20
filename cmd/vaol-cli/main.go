@@ -14,7 +14,12 @@ import (
 	"github.com/ogulcanaydogan/vaol/pkg/verifier"
 )
 
-var version = "0.1.0"
+// Build-time variables injected via ldflags.
+var (
+	version = "dev"
+	commit  = "none"
+	date    = "unknown"
+)
 
 func main() {
 	root := &cobra.Command{

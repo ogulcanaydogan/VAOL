@@ -588,7 +588,7 @@ func (s *Server) handleHealth(w http.ResponseWriter, _ *http.Request) {
 	count, _ := s.store.Count(context.Background())
 	writeJSON(w, http.StatusOK, map[string]any{
 		"status":       "ok",
-		"version":      "0.1.0",
+		"version":      s.config.Version,
 		"record_count": count,
 		"tree_size":    s.tree.Size(),
 	})

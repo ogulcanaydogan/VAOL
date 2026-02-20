@@ -20,6 +20,7 @@ import (
 
 // Config holds the server configuration.
 type Config struct {
+	Version            string        `json:"version"`
 	Addr               string        `json:"addr"`
 	ReadTimeout        time.Duration `json:"read_timeout"`
 	WriteTimeout       time.Duration `json:"write_timeout"`
@@ -44,6 +45,7 @@ type Config struct {
 // DefaultConfig returns sensible defaults for the server.
 func DefaultConfig() Config {
 	return Config{
+		Version:            "dev",
 		Addr:               ":8080",
 		ReadTimeout:        30 * time.Second,
 		WriteTimeout:       30 * time.Second,
@@ -214,7 +216,7 @@ func (s *Server) withMiddleware(next http.Handler) http.Handler {
 			reqID = fmt.Sprintf("vaol-%d", time.Now().UnixNano())
 		}
 		w.Header().Set("X-Request-ID", reqID)
-		w.Header().Set("X-VAOL-Version", "0.1.0")
+		w.Header().Set("X-VAOL-Version", s.config.Version)
 
 		// CORS
 		w.Header().Set("Access-Control-Allow-Origin", "*")
