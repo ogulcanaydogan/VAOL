@@ -1,0 +1,53 @@
+name: GHCR Smoke
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Release tag to validate (for example v0.2.7)
+        required: true
+        default: v0.2.7
+
+permissions:
+  contents: read
+  packages: read
+
+jobs:
+  smoke:
+    name: GHCR Pull + Runtime Smoke
+    runs-on: ubuntu-latest
+    steps:
+      - name: Resolve release tag
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "TAG=${{ inputs.tag }}" >> "$GITHUB_ENV"
+          else
+            echo "TAG=${{ github.event.release.tag_name }}" >> "$GITHUB_ENV"
+          fi
+
+      - name: Login to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Pull release images
+        run: |
+          set -euo pipefail
+          docker pull "ghcr.io/${{ github.repository_owner }}/vaol-server:${TAG}"
+          docker pull "ghcr.io/${{ github.repository_owner }}/vaol-proxy:${TAG}"
+
+      - name: Runtime help smoke
+        run: |
+          set -euo pipefail
+          docker run --rm "ghcr.io/${{ github.repository_owner }}/vaol-server:${TAG}" --help | sed -n '1,30p'
+          docker run --rm "ghcr.io/${{ github.repository_owner }}/vaol-proxy:${TAG}" --help | sed -n '1,30p'
+
+      - name: Record pulled digests
+        run: |
+          set -euo pipefail
+          docker image inspect "ghcr.io/${{ github.repository_owner }}/vaol-server:${TAG}" --format '{{index .RepoDigests 0}}'
+          docker image inspect "ghcr.io/${{ github.repository_owner }}/vaol-proxy:${TAG}" --format '{{index .RepoDigests 0}}'
