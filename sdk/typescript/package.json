@@ -19,7 +19,7 @@
     "build": "tsc",
     "test": "vitest run",
     "test:watch": "vitest",
-    "lint": "eslint src/ tests/",
+    "lint": "eslint src/",
     "clean": "rm -rf dist"
   },
   "keywords": [
@@ -34,7 +34,7 @@
   ],
   "license": "Apache-2.0",
   "devDependencies": {
-    "@eslint/js": "^10.0.1",
+    "@eslint/js": "^9.0.0",
     "@types/node": "^22.0.0",
     "eslint": "^9.0.0",
     "typescript": "^5.4.0",

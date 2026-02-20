@@ -72,7 +72,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "20"
-      - run: cd sdk/typescript && npm install && npm test
+      - run: cd sdk/typescript && npm ci && npm test
 
   lint-typescript:
     name: Lint (TypeScript)
@@ -82,7 +82,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "20"
-      - run: cd sdk/typescript && npm install && npm run lint
+      - run: cd sdk/typescript && npm ci && npm run lint
 
   test-policies:
     name: Test (OPA Policies)
