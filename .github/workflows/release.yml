@@ -39,6 +39,7 @@ jobs:
           path: .
           format: spdx-json
           output-file: sbom.spdx.json
+          upload-release-assets: false
       - name: Upload SBOM Artifact
         uses: actions/upload-artifact@v4
         with:
