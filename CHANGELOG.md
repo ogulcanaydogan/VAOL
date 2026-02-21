@@ -5,6 +5,18 @@ All notable changes to VAOL will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.0] - 2026-02-21
+
+### Added
+
+- **Server binary tests** — 8 tests for `buildSignerAndVerifiers` covering Ed25519 (ephemeral and PEM-loaded), Sigstore, KMS (local ECDSA with defaults), bad key path, unsupported mode, and ldflags variable verification.
+- **Proxy binary tests** — 9 tests for `Proxy.ServeHTTP` and `Proxy.emitRecord` covering request forwarding, VAOL header injection, upstream header copying, request header passthrough, error transparency, response body preservation, record emission to VAOL server, VAOL server error resilience, and ldflags verification.
+
+### Changed
+
+- **Version bump to 1.0.0** — All components aligned: Helm chart, Python SDK, TypeScript SDK, and API reference documentation bumped from 0.3.0/0.4.0 to 1.0.0.
+- **Python SDK classifier** — Upgraded from `Development Status :: 3 - Alpha` to `Development Status :: 5 - Production/Stable`.
+
 ## [0.4.0] - 2026-02-21
 
 ### Added
@@ -100,6 +112,7 @@ Initial public release of the Verifiable AI Output Ledger.
 - Startup Merkle rebuild with checkpoint/root validation.
 - Tenant-bound API access with cross-tenant rejection.
 
+[1.0.0]: https://github.com/ogulcanaydogan/vaol/releases/tag/v1.0.0
 [0.4.0]: https://github.com/ogulcanaydogan/vaol/releases/tag/v0.4.0
 [0.3.1]: https://github.com/ogulcanaydogan/vaol/releases/tag/v0.3.1
 [0.3.0]: https://github.com/ogulcanaydogan/vaol/releases/tag/v0.3.0

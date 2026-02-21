@@ -1,6 +1,6 @@
 # VAOL REST API Reference
 
-**Version:** 0.3.0
+**Version:** 1.0.0
 **Base URL:** `http://<host>:8080`
 **Content-Type:** `application/json`
 
@@ -68,7 +68,7 @@ Every response includes the following headers:
 | Header | Description | Example |
 |--------|-------------|---------|
 | `X-Request-ID` | Unique identifier for the request. Echoes the client-supplied `X-Request-ID` header if present; otherwise auto-generated. | `vaol-1708300000000000000` |
-| `X-VAOL-Version` | Server version string. | `0.3.0` |
+| `X-VAOL-Version` | Server version string. | `1.0.0` |
 | `X-VAOL-Record-ID` | The `request_id` (UUID) of the appended record. Present only on `POST /v1/records` responses. | `a1b2c3d4-e5f6-7890-abcd-ef1234567890` |
 | `X-VAOL-Sequence` | The assigned sequence number in the ledger. Present only on `POST /v1/records` responses. | `42` |
 | `Content-Type` | Always `application/json`. | `application/json` |
@@ -688,7 +688,7 @@ GET /v1/health
 ```json
 {
   "status": "ok",
-  "version": "0.3.0",
+  "version": "1.0.0",
   "record_count": 1024,
   "tree_size": 1024
 }
