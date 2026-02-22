@@ -10,6 +10,13 @@ permissions:
   contents: read
 
 jobs:
+  workflow-pin-policy:
+    name: Workflow Pin Policy
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - run: ./scripts/check_workflow_pins.sh
+
   toolchain-guard:
     name: Toolchain Guard (Go)
     runs-on: ubuntu-24.04
