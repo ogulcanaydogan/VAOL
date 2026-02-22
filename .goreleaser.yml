@@ -96,5 +96,5 @@ changelog:
 release:
   github:
     owner: ogulcanaydogan
-    name: vaol
+    name: Verifiable-AI-Output-Ledger
   prerelease: auto
