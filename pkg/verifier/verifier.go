@@ -204,6 +204,10 @@ func (v *Verifier) VerifyEnvelopeWithProfile(ctx context.Context, env *signer.En
 				strictCheck.Passed = false
 				strictCheck.Error = err.Error()
 				result.Valid = false
+			} else if err := verifyAllEnvelopeSignatures(ctx, env, v.sigVerifiers); err != nil {
+				strictCheck.Passed = false
+				strictCheck.Error = err.Error()
+				result.Valid = false
 			} else {
 				inclusionCheck, incErr := v.VerifyMerkleInclusion(&rec)
 				if incErr != nil {
@@ -275,6 +279,34 @@ func validateStrictEnvelopeMetadata(env *signer.Envelope, rec *record.DecisionRe
 	}
 	if rec.Integrity.InclusionProof != nil && rec.Integrity.InclusionProof.LeafIndex >= rec.Integrity.MerkleTreeSize {
 		return fmt.Errorf("strict profile requires integrity.inclusion_proof.leaf_index < integrity.merkle_tree_size")
+	}
+	return nil
+}
+
+func verifyAllEnvelopeSignatures(ctx context.Context, env *signer.Envelope, verifiers []signer.Verifier) error {
+	payload, err := signer.ExtractPayload(env)
+	if err != nil {
+		return fmt.Errorf("strict profile cannot decode envelope payload: %w", err)
+	}
+	pae := signer.PAE(env.PayloadType, payload)
+
+	for i, sig := range env.Signatures {
+		verified := false
+		var lastErr error
+		for _, v := range verifiers {
+			if err := v.Verify(ctx, pae, sig); err == nil {
+				verified = true
+				break
+			} else {
+				lastErr = err
+			}
+		}
+		if !verified {
+			if lastErr != nil {
+				return fmt.Errorf("strict profile requires all signatures to verify; signatures[%d] failed: %v", i, lastErr)
+			}
+			return fmt.Errorf("strict profile requires all signatures to verify; signatures[%d] failed", i)
+		}
 	}
 	return nil
 }
