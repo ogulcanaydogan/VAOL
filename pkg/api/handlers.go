@@ -690,20 +690,6 @@ func writeError(w http.ResponseWriter, status int, format string, args ...any) {
 	})
 }
 
-func firstHeaderValue(r *http.Request, keys ...string) string {
-	for _, key := range keys {
-		if v := r.Header.Get(key); v != "" {
-			return v
-		}
-	}
-	return ""
-}
-
-func tenantContextFromRequest(r *http.Request) string {
-	tenant, _ := tenantContextFromRequestValidated(r)
-	return tenant
-}
-
 func tenantContextFromRequestValidated(r *http.Request) (string, error) {
 	vaolTenant := strings.TrimSpace(r.Header.Get("X-VAOL-Tenant-ID"))
 	legacyTenant := strings.TrimSpace(r.Header.Get("X-Tenant-ID"))
