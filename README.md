@@ -171,6 +171,14 @@ make build
 ./bin/vaol-server --signer-mode ed25519 --key ~/.vaol/keys/vaol-signing.pem
 ./bin/vaol-server --signer-mode sigstore --sigstore-rekor-required
 ./bin/vaol-server --signer-mode kms --kms-provider aws-kms --kms-key-uri arn:aws:kms:...
+
+# Optional high-scale append event publishing to Kafka
+./bin/vaol-server \
+  --ingest-mode kafka \
+  --ingest-kafka-brokers kafka-1:9092,kafka-2:9092 \
+  --ingest-kafka-topic vaol.decision-records \
+  --ingest-kafka-client-id vaol-server \
+  --ingest-kafka-required
 ```
 
 ### Python SDK

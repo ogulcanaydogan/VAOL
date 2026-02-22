@@ -5,6 +5,25 @@ All notable changes to VAOL will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.11] - 2026-02-22
+
+### Added
+
+- **Kafka ingest publisher path** — Added optional Kafka append-event publishing (`--ingest-mode kafka`) with deterministic event schema for high-scale downstream indexing/export pipelines.
+- **Ingest configuration surfaces** — Added server flags, Helm values/schema/template wiring, and deployment documentation for Kafka ingest mode.
+- **Ingest tests** — Added dedicated tests for Kafka publisher validation, message encoding, write error propagation, and server startup behavior when ingest initialization is required vs optional.
+
+### Changed
+
+- **Strict verifier hardening** — `strict` profile now requires `policy_context.decision_reason_code`, `integrity.inclusion_proof_ref`, RFC 3339 signature timestamps, and valid Merkle inclusion verification over the embedded proof.
+- **FIPS profile enforcement path** — `fips` profile now uses a dedicated Ed25519 detection helper after strict checks.
+- **Verifier API documentation** — Expanded profile behavior documentation to explicitly define strict/fips requirements.
+
+### Fixed
+
+- **Helm schema compatibility** — Quoted `server.ingestMode` default to avoid YAML boolean coercion (`off` -> `false`) and chart validation failures.
+- **Release hygiene** — Removed stale draft release `v0.2.8` from GitHub releases.
+
 ## [0.2.10] - 2026-02-22
 
 ### Added
@@ -138,6 +157,7 @@ Initial public release of the Verifiable AI Output Ledger.
 - Startup Merkle rebuild with checkpoint/root validation.
 - Tenant-bound API access with cross-tenant rejection.
 
+[0.2.11]: https://github.com/ogulcanaydogan/Verifiable-AI-Output-Ledger/releases/tag/v0.2.11
 [0.2.10]: https://github.com/ogulcanaydogan/Verifiable-AI-Output-Ledger/releases/tag/v0.2.10
 [0.2.9]: https://github.com/ogulcanaydogan/Verifiable-AI-Output-Ledger/releases/tag/v0.2.9
 [0.2.8]: https://github.com/ogulcanaydogan/Verifiable-AI-Output-Ledger/releases/tag/v0.2.8

@@ -80,6 +80,23 @@ func (v *Verifier) VerifyEnvelopeWithProfile(ctx context.Context, env *signer.En
 		Valid:     true,
 	}
 
+	// 0. DSSE envelope validation
+	dsseCheck := CheckResult{Name: "dsse"}
+	switch {
+	case env.PayloadType != signer.PayloadType:
+		dsseCheck.Passed = false
+		dsseCheck.Error = fmt.Sprintf("invalid payloadType: got %q want %q", env.PayloadType, signer.PayloadType)
+		result.Valid = false
+	case len(env.Signatures) == 0:
+		dsseCheck.Passed = false
+		dsseCheck.Error = "envelope has no signatures"
+		result.Valid = false
+	default:
+		dsseCheck.Passed = true
+		dsseCheck.Details = "payload type and signatures present"
+	}
+	result.Checks = append(result.Checks, dsseCheck)
+
 	// 1. Verify signature(s)
 	sigCheck := CheckResult{Name: "signature"}
 	if err := signer.VerifyEnvelope(ctx, env, v.sigVerifiers...); err != nil {
@@ -157,6 +174,10 @@ func (v *Verifier) VerifyEnvelopeWithProfile(ctx context.Context, env *signer.En
 			strictCheck.Passed = false
 			strictCheck.Error = "strict profile requires policy_context.policy_hash"
 			result.Valid = false
+		case rec.PolicyContext.DecisionReasonCode == "":
+			strictCheck.Passed = false
+			strictCheck.Error = "strict profile requires policy_context.decision_reason_code"
+			result.Valid = false
 		case rec.Integrity.PreviousRecordHash == "":
 			strictCheck.Passed = false
 			strictCheck.Error = "strict profile requires integrity.previous_record_hash"
@@ -173,13 +194,30 @@ func (v *Verifier) VerifyEnvelopeWithProfile(ctx context.Context, env *signer.En
 			strictCheck.Passed = false
 			strictCheck.Error = "strict profile requires integrity.inclusion_proof"
 			result.Valid = false
-		case hasSigstoreSignatureWithoutRekor(env):
+		case rec.Integrity.InclusionProofRef == "":
 			strictCheck.Passed = false
-			strictCheck.Error = "strict profile requires rekor_entry_id for Sigstore signatures"
+			strictCheck.Error = "strict profile requires integrity.inclusion_proof_ref"
 			result.Valid = false
 		default:
-			strictCheck.Passed = true
-			strictCheck.Details = "strict profile checks passed"
+			if err := validateStrictEnvelopeMetadata(env, &rec); err != nil {
+				strictCheck.Passed = false
+				strictCheck.Error = err.Error()
+				result.Valid = false
+			} else {
+				inclusionCheck, incErr := v.VerifyMerkleInclusion(&rec)
+				if incErr != nil {
+					strictCheck.Passed = false
+					strictCheck.Error = fmt.Sprintf("strict profile inclusion verification failed: %v", incErr)
+					result.Valid = false
+				} else if !inclusionCheck.Passed {
+					strictCheck.Passed = false
+					strictCheck.Error = "strict profile requires valid Merkle inclusion proof: " + inclusionCheck.Error
+					result.Valid = false
+				} else {
+					strictCheck.Passed = true
+					strictCheck.Details = "strict profile checks passed"
+				}
+			}
 		}
 		result.Checks = append(result.Checks, strictCheck)
 	case ProfileFIPS:
@@ -190,12 +228,9 @@ func (v *Verifier) VerifyEnvelopeWithProfile(ctx context.Context, env *signer.En
 		}
 		fipsCheck := CheckResult{Name: "profile_fips"}
 		fipsCheck.Passed = true
-		for _, sig := range env.Signatures {
-			if len(sig.KeyID) >= 8 && sig.KeyID[:8] == "ed25519:" {
-				fipsCheck.Passed = false
-				fipsCheck.Error = "fips profile rejects ed25519 signatures"
-				break
-			}
+		if containsEd25519Signature(env) {
+			fipsCheck.Passed = false
+			fipsCheck.Error = "fips profile rejects ed25519 signatures"
 		}
 		if !fipsCheck.Passed {
 			strictResult.Valid = false
@@ -211,9 +246,56 @@ func (v *Verifier) VerifyEnvelopeWithProfile(ctx context.Context, env *signer.En
 	return result, nil
 }
 
-func hasSigstoreSignatureWithoutRekor(env *signer.Envelope) bool {
+func validateStrictEnvelopeMetadata(env *signer.Envelope, rec *record.DecisionRecord) error {
+	for i, sig := range env.Signatures {
+		if sig.Timestamp == "" {
+			return fmt.Errorf("strict profile requires signatures[%d].timestamp", i)
+		}
+		if _, err := time.Parse(time.RFC3339, sig.Timestamp); err != nil {
+			return fmt.Errorf("strict profile requires RFC3339 signatures[%d].timestamp: %v", i, err)
+		}
+		if isSigstoreKeyID(sig.KeyID) {
+			if sig.RekorEntryID == "" {
+				return fmt.Errorf("strict profile requires rekor_entry_id for Sigstore signatures")
+			}
+			if sig.Cert == "" {
+				return fmt.Errorf("strict profile requires cert for Sigstore signatures")
+			}
+		}
+	}
+	if rec.AuthContext != nil && rec.AuthContext.Authenticated && rec.AuthContext.Subject == "" {
+		return fmt.Errorf("strict profile requires auth_context.subject when auth_context.authenticated=true")
+	}
+	if rec.AuthContext != nil && rec.AuthContext.Authenticated && rec.AuthContext.TokenHash == "" {
+		return fmt.Errorf("strict profile requires auth_context.token_hash when auth_context.authenticated=true")
+	}
+	if rec.Integrity.InclusionProof != nil && rec.Integrity.InclusionProof.LeafIndex < 0 {
+		return fmt.Errorf("strict profile requires non-negative integrity.inclusion_proof.leaf_index")
+	}
+	if rec.Integrity.InclusionProof != nil && rec.Integrity.InclusionProof.LeafIndex >= rec.Integrity.MerkleTreeSize {
+		return fmt.Errorf("strict profile requires integrity.inclusion_proof.leaf_index < integrity.merkle_tree_size")
+	}
+	return nil
+}
+
+func isEd25519KeyID(keyID string) bool {
+	if strings.HasPrefix(keyID, "ed25519:") {
+		return true
+	}
+	if strings.Contains(strings.ToLower(keyID), "ed25519") {
+		return true
+	}
+	return false
+}
+
+func isSigstoreKeyID(keyID string) bool {
+	keyID = strings.ToLower(strings.TrimSpace(keyID))
+	return strings.HasPrefix(keyID, "fulcio:")
+}
+
+func containsEd25519Signature(env *signer.Envelope) bool {
 	for _, sig := range env.Signatures {
-		if strings.HasPrefix(sig.KeyID, "fulcio:") && sig.RekorEntryID == "" {
+		if isEd25519KeyID(sig.KeyID) {
 			return true
 		}
 	}

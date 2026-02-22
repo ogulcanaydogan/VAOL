@@ -13,6 +13,7 @@ import (
 	"github.com/google/uuid"
 	vaolcrypto "github.com/ogulcanaydogan/vaol/pkg/crypto"
 	"github.com/ogulcanaydogan/vaol/pkg/export"
+	"github.com/ogulcanaydogan/vaol/pkg/ingest"
 	"github.com/ogulcanaydogan/vaol/pkg/merkle"
 	"github.com/ogulcanaydogan/vaol/pkg/policy"
 	"github.com/ogulcanaydogan/vaol/pkg/record"
@@ -221,6 +222,13 @@ func (s *Server) handleAppendRecord(w http.ResponseWriter, r *http.Request) {
 	if err := s.maybePersistCheckpoint(r.Context(), seq); err != nil {
 		writeError(w, http.StatusInternalServerError, "persisting checkpoint: %v", err)
 		return
+	}
+	if err := s.publishDecisionRecordEvent(r.Context(), &rec); err != nil {
+		s.logger.Warn("failed to publish ingest event",
+			"request_id", rec.RequestID.String(),
+			"sequence_number", seq,
+			"error", err,
+		)
 	}
 
 	// Return receipt
@@ -734,4 +742,33 @@ func enforceTenantFilter(w http.ResponseWriter, r *http.Request, requestedTenant
 
 func proofIDForRequestID(requestID uuid.UUID) string {
 	return "proof:" + requestID.String()
+}
+
+func (s *Server) publishDecisionRecordEvent(ctx context.Context, rec *record.DecisionRecord) error {
+	if s.ingestPublisher == nil {
+		return nil
+	}
+	timeout := s.config.IngestPublishTimeout
+	if timeout <= 0 {
+		timeout = 2 * time.Second
+	}
+	publishCtx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+
+	return s.ingestPublisher.PublishDecisionRecord(publishCtx, &ingest.DecisionRecordEvent{
+		EventVersion:       "v1",
+		RequestID:          rec.RequestID.String(),
+		SequenceNumber:     rec.Integrity.SequenceNumber,
+		TenantID:           rec.Identity.TenantID,
+		Timestamp:          rec.Timestamp.UTC(),
+		RecordHash:         rec.Integrity.RecordHash,
+		PreviousRecordHash: rec.Integrity.PreviousRecordHash,
+		MerkleRoot:         rec.Integrity.MerkleRoot,
+		MerkleTreeSize:     rec.Integrity.MerkleTreeSize,
+		PolicyDecision:     string(rec.PolicyContext.PolicyDecision),
+		PolicyHash:         rec.PolicyContext.PolicyHash,
+		ModelProvider:      rec.Model.Provider,
+		ModelName:          rec.Model.Name,
+		OutputMode:         string(rec.Output.Mode),
+	})
 }

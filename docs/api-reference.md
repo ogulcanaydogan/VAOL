@@ -1,6 +1,6 @@
 # VAOL REST API Reference
 
-**Version:** 0.2.10
+**Version:** 0.2.11
 **Base URL:** `http://<host>:8080`
 **Content-Type:** `application/json`
 
@@ -68,7 +68,7 @@ Every response includes the following headers:
 | Header | Description | Example |
 |--------|-------------|---------|
 | `X-Request-ID` | Unique identifier for the request. Echoes the client-supplied `X-Request-ID` header if present; otherwise auto-generated. | `vaol-1708300000000000000` |
-| `X-VAOL-Version` | Server version string. | `0.2.10` |
+| `X-VAOL-Version` | Server version string. | `0.2.11` |
 | `X-VAOL-Record-ID` | The `request_id` (UUID) of the appended record. Present only on `POST /v1/records` responses. | `a1b2c3d4-e5f6-7890-abcd-ef1234567890` |
 | `X-VAOL-Sequence` | The assigned sequence number in the ledger. Present only on `POST /v1/records` responses. | `42` |
 | `Content-Type` | Always `application/json`. | `application/json` |
@@ -365,6 +365,16 @@ Verify a DSSE envelope containing a signed DecisionRecord. The server performs t
 3. **Record hash verification** -- Recomputes the hash from the JCS-canonicalized payload and compares it to the stored `record_hash`.
 
 Optional query parameter: `profile=basic|strict|fips`.
+
+`strict` profile enforces additional evidence requirements:
+
+1. `policy_context.policy_bundle_id`, `policy_context.policy_hash`, and `policy_context.decision_reason_code` must be present.
+2. `integrity.previous_record_hash`, `integrity.merkle_root`, `integrity.merkle_tree_size`, `integrity.inclusion_proof`, and `integrity.inclusion_proof_ref` must be present.
+3. The embedded inclusion proof must verify against `integrity.record_hash`.
+4. Every signature must include an RFC 3339 `timestamp`.
+5. Sigstore/Fulcio signatures must include both `rekor_entry_id` and `cert`.
+
+`fips` profile runs all strict checks, then additionally rejects Ed25519 signatures.
 
 **Request Body:** DSSE Envelope JSON
 
@@ -688,7 +698,7 @@ GET /v1/health
 ```json
 {
   "status": "ok",
-  "version": "0.2.10",
+  "version": "0.2.11",
   "record_count": 1024,
   "tree_size": 1024
 }

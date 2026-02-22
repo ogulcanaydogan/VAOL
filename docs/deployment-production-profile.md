@@ -9,6 +9,7 @@ This profile hardens VAOL for regulated deployments by enforcing fail-closed beh
 3. Enforce startup integrity checks (`failOnStartupCheck=true`).
 4. Enable deterministic checkpoint behavior (`checkpointEvery`, `checkpointInterval`, `anchorMode`).
 5. Prefer Sigstore strict mode in connected environments (`sigstoreRekorRequired=true` in production profile).
+6. Optionally enable Kafka append-event publishing for high-scale downstream indexing/export pipelines.
 
 ## Helm Values Mapping
 
@@ -50,6 +51,12 @@ server:
   checkpointInterval: 5m
   anchorMode: http
   anchorURL: https://anchors.example.com/vaol/checkpoints
+  ingestMode: kafka
+  ingestKafkaBrokers: kafka-1:9092,kafka-2:9092
+  ingestKafkaTopic: vaol.decision-records
+  ingestKafkaClientID: vaol-server-prod
+  ingestKafkaRequired: true
+  ingestPublishTimeout: 2s
 
   rebuildOnStart: true
   failOnStartupCheck: true
@@ -73,3 +80,4 @@ helm upgrade --install vaol ./deploy/helm/vaol \
 3. OPA outage causes deterministic deny (`policy_engine_unavailable`) rather than allow.
 4. Checkpoint records are persisted and available via `/v1/ledger/checkpoints/latest`.
 5. `vaol verify bundle --profile strict` passes for untampered bundles and fails for tampered bundles.
+6. If `ingestMode=kafka`, check topic receives append events with `event_type=decision_record_appended`.

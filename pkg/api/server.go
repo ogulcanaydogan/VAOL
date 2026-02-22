@@ -3,6 +3,7 @@ package api
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -11,6 +12,7 @@ import (
 	"time"
 
 	"github.com/ogulcanaydogan/vaol/pkg/auth"
+	"github.com/ogulcanaydogan/vaol/pkg/ingest"
 	"github.com/ogulcanaydogan/vaol/pkg/merkle"
 	"github.com/ogulcanaydogan/vaol/pkg/policy"
 	"github.com/ogulcanaydogan/vaol/pkg/signer"
@@ -20,44 +22,52 @@ import (
 
 // Config holds the server configuration.
 type Config struct {
-	Version            string        `json:"version"`
-	Addr               string        `json:"addr"`
-	ReadTimeout        time.Duration `json:"read_timeout"`
-	WriteTimeout       time.Duration `json:"write_timeout"`
-	WebDir             string        `json:"web_dir"` // Path to auditor web UI directory (optional)
-	CheckpointEvery    int64         `json:"checkpoint_every"`
-	CheckpointInterval time.Duration `json:"checkpoint_interval"`
-	AnchorMode         string        `json:"anchor_mode"` // off, local, http
-	AnchorURL          string        `json:"anchor_url"`
-	AuthMode           string        `json:"auth_mode"` // disabled, optional, required
-	JWTIssuer          string        `json:"jwt_issuer"`
-	JWTAudience        string        `json:"jwt_audience"`
-	JWTTenantClaim     string        `json:"jwt_tenant_claim"`
-	JWTSubjectClaim    string        `json:"jwt_subject_claim"`
-	JWKSFile           string        `json:"jwks_file"`
-	JWKSURL            string        `json:"jwks_url"`
-	JWTHS256Secret     string        `json:"jwt_hs256_secret"`
-	JWTClockSkew       time.Duration `json:"jwt_clock_skew"`
-	RebuildOnStart     bool          `json:"rebuild_on_start"`
-	FailOnStartupCheck bool          `json:"fail_on_startup_check"`
+	Version              string        `json:"version"`
+	Addr                 string        `json:"addr"`
+	ReadTimeout          time.Duration `json:"read_timeout"`
+	WriteTimeout         time.Duration `json:"write_timeout"`
+	WebDir               string        `json:"web_dir"` // Path to auditor web UI directory (optional)
+	CheckpointEvery      int64         `json:"checkpoint_every"`
+	CheckpointInterval   time.Duration `json:"checkpoint_interval"`
+	AnchorMode           string        `json:"anchor_mode"` // off, local, http
+	AnchorURL            string        `json:"anchor_url"`
+	AuthMode             string        `json:"auth_mode"` // disabled, optional, required
+	JWTIssuer            string        `json:"jwt_issuer"`
+	JWTAudience          string        `json:"jwt_audience"`
+	JWTTenantClaim       string        `json:"jwt_tenant_claim"`
+	JWTSubjectClaim      string        `json:"jwt_subject_claim"`
+	JWKSFile             string        `json:"jwks_file"`
+	JWKSURL              string        `json:"jwks_url"`
+	JWTHS256Secret       string        `json:"jwt_hs256_secret"`
+	JWTClockSkew         time.Duration `json:"jwt_clock_skew"`
+	RebuildOnStart       bool          `json:"rebuild_on_start"`
+	FailOnStartupCheck   bool          `json:"fail_on_startup_check"`
+	IngestMode           string        `json:"ingest_mode"` // off, kafka
+	IngestKafkaBrokers   []string      `json:"ingest_kafka_brokers"`
+	IngestKafkaTopic     string        `json:"ingest_kafka_topic"`
+	IngestKafkaClient    string        `json:"ingest_kafka_client"`
+	IngestKafkaRequired  bool          `json:"ingest_kafka_required"`
+	IngestPublishTimeout time.Duration `json:"ingest_publish_timeout"`
 }
 
 // DefaultConfig returns sensible defaults for the server.
 func DefaultConfig() Config {
 	return Config{
-		Version:            "dev",
-		Addr:               ":8080",
-		ReadTimeout:        30 * time.Second,
-		WriteTimeout:       30 * time.Second,
-		CheckpointEvery:    100,
-		CheckpointInterval: 5 * time.Minute,
-		AnchorMode:         "local",
-		AuthMode:           string(auth.ModeDisabled),
-		JWTTenantClaim:     "tenant_id",
-		JWTSubjectClaim:    "sub",
-		JWTClockSkew:       30 * time.Second,
-		RebuildOnStart:     true,
-		FailOnStartupCheck: true,
+		Version:              "dev",
+		Addr:                 ":8080",
+		ReadTimeout:          30 * time.Second,
+		WriteTimeout:         30 * time.Second,
+		CheckpointEvery:      100,
+		CheckpointInterval:   5 * time.Minute,
+		AnchorMode:           "local",
+		AuthMode:             string(auth.ModeDisabled),
+		JWTTenantClaim:       "tenant_id",
+		JWTSubjectClaim:      "sub",
+		JWTClockSkew:         30 * time.Second,
+		RebuildOnStart:       true,
+		FailOnStartupCheck:   true,
+		IngestMode:           "off",
+		IngestPublishTimeout: 2 * time.Second,
 	}
 }
 
@@ -74,6 +84,7 @@ type Server struct {
 	authMode         auth.Mode
 	checkpointSigner *merkle.CheckpointSigner
 	anchorClient     merkle.AnchorClient
+	ingestPublisher  ingest.Publisher
 	lastCheckpointAt time.Time
 	checkpointMu     sync.Mutex
 	startupErr       error
@@ -107,6 +118,18 @@ func NewServer(
 		anchorClient:     newAnchorClient(cfg),
 		lastCheckpointAt: time.Now().UTC(),
 		logger:           logger,
+	}
+
+	ingestPublisher, ingestErr := newIngestPublisher(cfg)
+	if ingestErr != nil {
+		if cfg.IngestKafkaRequired {
+			s.startupErr = errors.Join(s.startupErr, fmt.Errorf("ingest publisher initialization: %w", ingestErr))
+		} else {
+			logger.Warn("ingest publisher initialization failed; disabling ingest events", "error", ingestErr)
+		}
+		s.ingestPublisher = ingest.NewNoopPublisher()
+	} else {
+		s.ingestPublisher = ingestPublisher
 	}
 
 	mode, err := auth.ParseMode(cfg.AuthMode)
@@ -203,7 +226,17 @@ func (s *Server) Handler() http.Handler {
 // Shutdown gracefully stops the server.
 func (s *Server) Shutdown(ctx context.Context) error {
 	s.logger.Info("shutting down VAOL server")
-	return s.http.Shutdown(ctx)
+	shutdownErr := s.http.Shutdown(ctx)
+	closeErr := error(nil)
+	if s.ingestPublisher != nil {
+		if err := s.ingestPublisher.Close(); err != nil {
+			closeErr = fmt.Errorf("closing ingest publisher: %w", err)
+		}
+	}
+	if shutdownErr != nil || closeErr != nil {
+		return errors.Join(shutdownErr, closeErr)
+	}
+	return nil
 }
 
 func (s *Server) withMiddleware(next http.Handler) http.Handler {
@@ -274,5 +307,26 @@ func newAnchorClient(cfg Config) merkle.AnchorClient {
 		return &merkle.HTTPAnchorClient{Endpoint: cfg.AnchorURL}
 	default:
 		return &merkle.NoopAnchorClient{}
+	}
+}
+
+func newIngestPublisher(cfg Config) (ingest.Publisher, error) {
+	mode := strings.TrimSpace(strings.ToLower(cfg.IngestMode))
+	switch mode {
+	case "", "off":
+		return ingest.NewNoopPublisher(), nil
+	case "kafka":
+		topic := cfg.IngestKafkaTopic
+		if strings.TrimSpace(topic) == "" {
+			topic = "vaol.decision-records"
+		}
+		return ingest.NewKafkaPublisher(ingest.KafkaConfig{
+			Brokers:      cfg.IngestKafkaBrokers,
+			Topic:        topic,
+			ClientID:     cfg.IngestKafkaClient,
+			BatchTimeout: 10 * time.Millisecond,
+		})
+	default:
+		return nil, fmt.Errorf("unsupported ingest mode: %s", cfg.IngestMode)
 	}
 }

@@ -93,6 +93,18 @@ spec:
             - --kms-access-token={{ .Values.server.kmsAccessToken }}
             {{- end }}
             {{- end }}
+            - --ingest-mode={{ .Values.server.ingestMode }}
+            {{- if .Values.server.ingestKafkaBrokers }}
+            - --ingest-kafka-brokers={{ .Values.server.ingestKafkaBrokers }}
+            {{- end }}
+            {{- if .Values.server.ingestKafkaTopic }}
+            - --ingest-kafka-topic={{ .Values.server.ingestKafkaTopic }}
+            {{- end }}
+            {{- if .Values.server.ingestKafkaClientID }}
+            - --ingest-kafka-client-id={{ .Values.server.ingestKafkaClientID }}
+            {{- end }}
+            - --ingest-kafka-required={{ .Values.server.ingestKafkaRequired }}
+            - --ingest-publish-timeout={{ .Values.server.ingestPublishTimeout }}
             {{- if .Values.opa.enabled }}
             - --opa-url=http://{{ include "vaol.fullname" . }}-opa:{{ .Values.opa.port }}
             - --opa-policy={{ .Values.server.opaPolicy }}

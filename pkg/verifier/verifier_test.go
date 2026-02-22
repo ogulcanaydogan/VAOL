@@ -197,17 +197,7 @@ func TestVerifyEnvelopeStrictProfileRequiresPolicyHash(t *testing.T) {
 func TestVerifyEnvelopeFIPSRejectsEd25519(t *testing.T) {
 	s, _ := signer.GenerateEd25519Signer()
 	rec := makeTestDecisionRecord()
-	rec.PolicyContext.PolicyHash = "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-	rec.PolicyContext.PolicyBundleID = "bundle/v1"
-	rec.Integrity.PreviousRecordHash = "sha256:0000000000000000000000000000000000000000000000000000000000000000"
-	rec.Integrity.MerkleRoot = "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
-	rec.Integrity.MerkleTreeSize = 1
-	rec.Integrity.InclusionProof = &record.InclusionProof{
-		LeafIndex: 0,
-		Hashes:    []string{},
-	}
-	hash, _ := record.ComputeRecordHash(rec)
-	rec.Integrity.RecordHash = hash
+	enrichStrictEvidence(t, rec)
 	payload, _ := json.Marshal(rec)
 	env, _ := signer.SignEnvelope(context.Background(), payload, s)
 
@@ -224,20 +214,11 @@ func TestVerifyEnvelopeFIPSRejectsEd25519(t *testing.T) {
 func TestVerifyEnvelopeStrictRequiresRekorForSigstore(t *testing.T) {
 	s, _ := signer.GenerateEd25519Signer()
 	rec := makeTestDecisionRecord()
-	rec.PolicyContext.PolicyHash = "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-	rec.PolicyContext.PolicyBundleID = "bundle/v1"
-	rec.Integrity.PreviousRecordHash = "sha256:0000000000000000000000000000000000000000000000000000000000000000"
-	rec.Integrity.MerkleRoot = "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
-	rec.Integrity.MerkleTreeSize = 1
-	rec.Integrity.InclusionProof = &record.InclusionProof{
-		LeafIndex: 0,
-		Hashes:    []string{},
-	}
-	hash, _ := record.ComputeRecordHash(rec)
-	rec.Integrity.RecordHash = hash
+	enrichStrictEvidence(t, rec)
 	payload, _ := json.Marshal(rec)
 	env, _ := signer.SignEnvelope(context.Background(), payload, s)
 	env.Signatures[0].KeyID = "fulcio:https://issuer.example::svc"
+	env.Signatures[0].Cert = "mock-cert-bytes"
 	env.Signatures[0].RekorEntryID = ""
 
 	v := New(signer.NewEd25519Verifier(s.PublicKey()))
@@ -247,6 +228,41 @@ func TestVerifyEnvelopeStrictRequiresRekorForSigstore(t *testing.T) {
 	}
 	if result.Valid {
 		t.Fatal("strict profile should fail when Sigstore signature lacks rekor_entry_id")
+	}
+}
+
+func TestVerifyEnvelopeStrictPassesWithCompleteEvidence(t *testing.T) {
+	s, _ := signer.GenerateEd25519Signer()
+	rec := makeTestDecisionRecord()
+	enrichStrictEvidence(t, rec)
+	payload, _ := json.Marshal(rec)
+	env, _ := signer.SignEnvelope(context.Background(), payload, s)
+
+	v := New(signer.NewEd25519Verifier(s.PublicKey()))
+	result, err := v.VerifyEnvelopeWithProfile(context.Background(), env, ProfileStrict)
+	if err != nil {
+		t.Fatalf("VerifyEnvelopeWithProfile error: %v", err)
+	}
+	if !result.Valid {
+		t.Fatalf("strict profile should pass with complete evidence: %+v", result.Checks)
+	}
+}
+
+func TestVerifyEnvelopeStrictRejectsInvalidSignatureTimestamp(t *testing.T) {
+	s, _ := signer.GenerateEd25519Signer()
+	rec := makeTestDecisionRecord()
+	enrichStrictEvidence(t, rec)
+	payload, _ := json.Marshal(rec)
+	env, _ := signer.SignEnvelope(context.Background(), payload, s)
+	env.Signatures[0].Timestamp = "not-a-rfc3339-time"
+
+	v := New(signer.NewEd25519Verifier(s.PublicKey()))
+	result, err := v.VerifyEnvelopeWithProfile(context.Background(), env, ProfileStrict)
+	if err != nil {
+		t.Fatalf("VerifyEnvelopeWithProfile error: %v", err)
+	}
+	if result.Valid {
+		t.Fatal("strict profile should reject invalid signature timestamp")
 	}
 }
 
@@ -305,4 +321,33 @@ func makeTestDecisionRecord() *record.DecisionRecord {
 	rec.Output.Mode = record.OutputModeHashOnly
 	rec.Integrity.RecordHash = "sha256:0000000000000000000000000000000000000000000000000000000000000000"
 	return rec
+}
+
+func enrichStrictEvidence(t *testing.T, rec *record.DecisionRecord) {
+	t.Helper()
+
+	rec.PolicyContext.PolicyBundleID = "bundle/v1"
+	rec.PolicyContext.PolicyHash = "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	rec.PolicyContext.DecisionReasonCode = "policy_allow"
+	rec.Integrity.PreviousRecordHash = "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+
+	hash, err := record.ComputeRecordHash(rec)
+	if err != nil {
+		t.Fatalf("ComputeRecordHash error: %v", err)
+	}
+	rec.Integrity.RecordHash = hash
+
+	tree := merkle.New()
+	leafIndex := tree.Append([]byte(hash))
+	rec.Integrity.MerkleTreeSize = tree.Size()
+	rec.Integrity.MerkleRoot = tree.Root()
+	proof, err := tree.InclusionProof(leafIndex, tree.Size())
+	if err != nil {
+		t.Fatalf("InclusionProof error: %v", err)
+	}
+	rec.Integrity.InclusionProof = &record.InclusionProof{
+		LeafIndex: proof.LeafIndex,
+		Hashes:    proof.Hashes,
+	}
+	rec.Integrity.InclusionProofRef = "/v1/proofs/proof:" + rec.RequestID.String()
 }

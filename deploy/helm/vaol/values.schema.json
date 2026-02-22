@@ -202,6 +202,32 @@
         },
         "kmsEndpoint": { "type": "string", "default": "" },
         "kmsAccessToken": { "type": "string", "default": "" },
+        "ingestMode": {
+          "type": "string",
+          "enum": ["off", "kafka"],
+          "default": "off"
+        },
+        "ingestKafkaBrokers": {
+          "type": "string",
+          "default": ""
+        },
+        "ingestKafkaTopic": {
+          "type": "string",
+          "default": "vaol.decision-records"
+        },
+        "ingestKafkaClientID": {
+          "type": "string",
+          "default": "vaol-server"
+        },
+        "ingestKafkaRequired": {
+          "type": "boolean",
+          "default": false
+        },
+        "ingestPublishTimeout": {
+          "type": "string",
+          "default": "2s",
+          "description": "Ingest publisher timeout (Go duration)"
+        },
         "logLevel": {
           "type": "string",
           "enum": ["debug", "info", "warn", "error"],

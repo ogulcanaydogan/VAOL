@@ -133,3 +133,19 @@ func TestBuildVariablesExist(t *testing.T) {
 		t.Fatal("date should have a default value")
 	}
 }
+
+func TestParseCommaSeparatedNonEmpty(t *testing.T) {
+	t.Parallel()
+
+	got := parseCommaSeparatedNonEmpty(" broker1:9092, ,broker2:9092,broker3:9092 ")
+	want := []string{"broker1:9092", "broker2:9092", "broker3:9092"}
+
+	if len(got) != len(want) {
+		t.Fatalf("length mismatch: got %d want %d", len(got), len(want))
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("index %d mismatch: got %q want %q", i, got[i], want[i])
+		}
+	}
+}

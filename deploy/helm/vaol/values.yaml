@@ -68,6 +68,13 @@ server:
   kmsKeyURI: local://vaol-signing
   kmsEndpoint: ""
   kmsAccessToken: ""
+  # High-scale append event publishing: off, kafka
+  ingestMode: "off"
+  ingestKafkaBrokers: ""
+  ingestKafkaTopic: vaol.decision-records
+  ingestKafkaClientID: vaol-server
+  ingestKafkaRequired: false
+  ingestPublishTimeout: 2s
   # Log level: debug, info, warn, error
   logLevel: info
 
