@@ -4,6 +4,7 @@
 {{- $anchorMode := ternary .Values.profile.production.anchorMode .Values.server.anchorMode $isProd -}}
 {{- $requireRekor := ternary .Values.profile.production.sigstoreRekorRequired .Values.server.sigstoreRekorRequired $isProd -}}
 {{- $failOnStartupCheck := ternary .Values.profile.production.failOnStartupCheck .Values.server.failOnStartupCheck $isProd -}}
+{{- $anchorContinuityRequired := ternary .Values.profile.production.anchorContinuityRequired .Values.server.anchorContinuityRequired $isProd -}}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -51,6 +52,7 @@ spec:
             - --checkpoint-every={{ .Values.server.checkpointEvery }}
             - --checkpoint-interval={{ .Values.server.checkpointInterval }}
             - --anchor-mode={{ $anchorMode }}
+            - --anchor-continuity-required={{ $anchorContinuityRequired }}
             - --rebuild-on-start={{ .Values.server.rebuildOnStart }}
             - --fail-on-startup-check={{ $failOnStartupCheck }}
             {{- if .Values.server.jwtIssuer }}

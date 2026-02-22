@@ -94,6 +94,10 @@
               "enum": ["off", "local", "http"],
               "default": "local"
             },
+            "anchorContinuityRequired": {
+              "type": "boolean",
+              "default": true
+            },
             "sigstoreRekorRequired": {
               "type": "boolean",
               "default": true
@@ -185,6 +189,11 @@
           "type": "string",
           "default": "",
           "description": "HTTP anchor endpoint URL"
+        },
+        "anchorContinuityRequired": {
+          "type": "boolean",
+          "default": false,
+          "description": "Fail startup when latest checkpoint anchor continuity cannot be validated"
         },
         "sigstoreRekorRequired": {
           "type": "boolean",

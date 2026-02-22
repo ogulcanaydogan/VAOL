@@ -205,6 +205,8 @@ func InjectTrustedHeaders(r *http.Request, claims *Claims) *http.Request {
 
 	// Replace caller-supplied identity hints with verified claims.
 	rr.Header.Del("Authorization")
+	rr.Header.Del("X-Tenant-ID")
+	rr.Header.Del("X-VAOL-Tenant-ID")
 	rr.Header.Set("X-Auth-Source", "jwt")
 	rr.Header.Set("X-Auth-Token-Hash", claims.TokenHash)
 	if claims.Issuer != "" {

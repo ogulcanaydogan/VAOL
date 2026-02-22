@@ -59,6 +59,7 @@ func main() {
 		checkpointInterval   = flag.Duration("checkpoint-interval", 5*time.Minute, "persist a signed checkpoint at least every duration")
 		anchorMode           = flag.String("anchor-mode", "local", "checkpoint anchoring mode: off, local, http")
 		anchorURL            = flag.String("anchor-url", "", "checkpoint anchoring endpoint URL (required when anchor-mode=http)")
+		anchorContinuityReq  = flag.Bool("anchor-continuity-required", false, "fail startup if latest checkpoint anchor continuity cannot be verified")
 		rebuildOnStart       = flag.Bool("rebuild-on-start", true, "rebuild Merkle tree from persisted records on startup")
 		failOnStartupCheck   = flag.Bool("fail-on-startup-check", true, "fail startup when integrity rebuild/checkpoint validation fails")
 		ingestMode           = flag.String("ingest-mode", "off", "ingest event publishing mode: off, kafka")
@@ -159,30 +160,31 @@ func main() {
 
 	// Server
 	cfg := api.Config{
-		Version:              version,
-		Addr:                 *addr,
-		WebDir:               *webDir,
-		CheckpointEvery:      *checkpointEvery,
-		CheckpointInterval:   *checkpointInterval,
-		AnchorMode:           *anchorMode,
-		AnchorURL:            *anchorURL,
-		AuthMode:             *authMode,
-		JWTIssuer:            *jwtIssuer,
-		JWTAudience:          *jwtAudience,
-		JWTTenantClaim:       *jwtTenantClaim,
-		JWTSubjectClaim:      *jwtSubjectClaim,
-		JWKSFile:             *jwksFile,
-		JWKSURL:              *jwksURL,
-		JWTHS256Secret:       *jwtHS256Secret,
-		JWTClockSkew:         *jwtClockSkew,
-		RebuildOnStart:       *rebuildOnStart,
-		FailOnStartupCheck:   *failOnStartupCheck,
-		IngestMode:           *ingestMode,
-		IngestKafkaBrokers:   parseCommaSeparatedNonEmpty(*ingestKafkaBrokers),
-		IngestKafkaTopic:     *ingestKafkaTopic,
-		IngestKafkaClient:    *ingestKafkaClient,
-		IngestKafkaRequired:  *ingestKafkaRequired,
-		IngestPublishTimeout: *ingestPublishTimeout,
+		Version:                  version,
+		Addr:                     *addr,
+		WebDir:                   *webDir,
+		CheckpointEvery:          *checkpointEvery,
+		CheckpointInterval:       *checkpointInterval,
+		AnchorMode:               *anchorMode,
+		AnchorURL:                *anchorURL,
+		AnchorContinuityRequired: *anchorContinuityReq,
+		AuthMode:                 *authMode,
+		JWTIssuer:                *jwtIssuer,
+		JWTAudience:              *jwtAudience,
+		JWTTenantClaim:           *jwtTenantClaim,
+		JWTSubjectClaim:          *jwtSubjectClaim,
+		JWKSFile:                 *jwksFile,
+		JWKSURL:                  *jwksURL,
+		JWTHS256Secret:           *jwtHS256Secret,
+		JWTClockSkew:             *jwtClockSkew,
+		RebuildOnStart:           *rebuildOnStart,
+		FailOnStartupCheck:       *failOnStartupCheck,
+		IngestMode:               *ingestMode,
+		IngestKafkaBrokers:       parseCommaSeparatedNonEmpty(*ingestKafkaBrokers),
+		IngestKafkaTopic:         *ingestKafkaTopic,
+		IngestKafkaClient:        *ingestKafkaClient,
+		IngestKafkaRequired:      *ingestKafkaRequired,
+		IngestPublishTimeout:     *ingestPublishTimeout,
 	}
 
 	srv := api.NewServer(cfg, st, sig, verifiers, tree, pol, logger)

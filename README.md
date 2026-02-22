@@ -179,6 +179,18 @@ make build
   --ingest-kafka-topic vaol.decision-records \
   --ingest-kafka-client-id vaol-server \
   --ingest-kafka-required
+
+# Enforce startup anchor continuity verification (production hardening)
+./bin/vaol-server --anchor-mode local --anchor-continuity-required
+
+# Async high-scale Merkle/checkpoint worker fed from Kafka append events
+./bin/vaol-ingest-worker \
+  --kafka-brokers kafka-1:9092,kafka-2:9092 \
+  --kafka-topic vaol.decision-records \
+  --kafka-group-id vaol-ingest-worker \
+  --checkpoint-topic vaol.tenant-checkpoints \
+  --anchor-mode local \
+  --checkpoint-every 100
 ```
 
 ### Python SDK
@@ -354,7 +366,10 @@ For local development only, use `--policy-mode allow-all`.
 # Writes: ~/.vaol/keys/vaol-signing.pub (public)
 
 # Verify an audit bundle
-./bin/vaol verify bundle audit-bundle.json --public-key ~/.vaol/keys/vaol-signing.pub
+./bin/vaol verify bundle audit-bundle.json \
+  --public-key ~/.vaol/keys/vaol-signing.pub \
+  --transcript-json verification-transcript.json \
+  --report-markdown verification-report.md
 
 # Inspect a DSSE envelope
 ./bin/vaol inspect record.json

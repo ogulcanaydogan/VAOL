@@ -117,6 +117,14 @@ func (s *startupSequenceStore) ListPayloadTombstones(_ context.Context, _ string
 	return nil, nil
 }
 
+func (s *startupSequenceStore) SaveKeyRotationEvent(_ context.Context, _ *store.KeyRotationEvent) error {
+	return errStartupStoreUnsupported
+}
+
+func (s *startupSequenceStore) ListKeyRotationEvents(_ context.Context, _ int) ([]*store.KeyRotationEvent, error) {
+	return nil, nil
+}
+
 func (s *startupSequenceStore) SaveProof(_ context.Context, _ *store.StoredProof) error {
 	return errStartupStoreUnsupported
 }
@@ -246,6 +254,89 @@ func TestServerStartupAcceptsValidSignedCheckpoint(t *testing.T) {
 	}
 
 	assertStartupHealthTreeSize(t, srv, 2)
+}
+
+func TestServerStartupRejectsAnchorContinuityMismatch(t *testing.T) {
+	ctx := context.Background()
+
+	sig, err := signer.GenerateEd25519Signer()
+	if err != nil {
+		t.Fatalf("GenerateEd25519Signer: %v", err)
+	}
+	ver := signer.NewEd25519Verifier(sig.PublicKey())
+
+	records := []*store.StoredRecord{
+		makeStartupStoredRecord(t, 1, mustHashString(t, "anchor-check-1"), 0),
+	}
+	tree := merkle.New()
+	for _, rec := range records {
+		tree.Append([]byte(rec.RecordHash))
+	}
+	cp, err := merkle.NewCheckpointSigner(sig).SignCheckpoint(ctx, tree)
+	if err != nil {
+		t.Fatalf("SignCheckpoint: %v", err)
+	}
+	cp.RekorEntryID = "local:sha256:deadbeef"
+	st := newStartupSequenceStore(records, &store.StoredCheckpoint{
+		TreeSize:     cp.TreeSize,
+		RootHash:     cp.RootHash,
+		Checkpoint:   cp,
+		RekorEntryID: cp.RekorEntryID,
+	})
+
+	cfg := api.DefaultConfig()
+	cfg.AnchorMode = "local"
+	cfg.AnchorContinuityRequired = true
+	cfg.FailOnStartupCheck = true
+	srv := api.NewServer(cfg, st, sig, []signer.Verifier{ver}, merkle.New(), nil, slog.Default())
+	if srv.StartupError() == nil {
+		t.Fatal("expected startup error for anchor continuity mismatch, got nil")
+	}
+	if !strings.Contains(srv.StartupError().Error(), "anchor continuity") {
+		t.Fatalf("unexpected startup error: %v", srv.StartupError())
+	}
+}
+
+func TestServerStartupAcceptsAnchorContinuityLocal(t *testing.T) {
+	ctx := context.Background()
+
+	sig, err := signer.GenerateEd25519Signer()
+	if err != nil {
+		t.Fatalf("GenerateEd25519Signer: %v", err)
+	}
+	ver := signer.NewEd25519Verifier(sig.PublicKey())
+
+	records := []*store.StoredRecord{
+		makeStartupStoredRecord(t, 1, mustHashString(t, "anchor-ok-1"), 0),
+	}
+	tree := merkle.New()
+	for _, rec := range records {
+		tree.Append([]byte(rec.RecordHash))
+	}
+	cp, err := merkle.NewCheckpointSigner(sig).SignCheckpoint(ctx, tree)
+	if err != nil {
+		t.Fatalf("SignCheckpoint: %v", err)
+	}
+	anchorID, err := (&merkle.HashAnchorClient{}).Anchor(ctx, cp)
+	if err != nil {
+		t.Fatalf("Hash anchor: %v", err)
+	}
+	cp.RekorEntryID = anchorID
+	st := newStartupSequenceStore(records, &store.StoredCheckpoint{
+		TreeSize:     cp.TreeSize,
+		RootHash:     cp.RootHash,
+		Checkpoint:   cp,
+		RekorEntryID: anchorID,
+	})
+
+	cfg := api.DefaultConfig()
+	cfg.AnchorMode = "local"
+	cfg.AnchorContinuityRequired = true
+	cfg.FailOnStartupCheck = true
+	srv := api.NewServer(cfg, st, sig, []signer.Verifier{ver}, merkle.New(), nil, slog.Default())
+	if err := srv.StartupError(); err != nil {
+		t.Fatalf("unexpected startup error: %v", err)
+	}
 }
 
 func makeStartupStoredRecord(t *testing.T, seq int64, recordHash string, leafIndex int64) *store.StoredRecord {

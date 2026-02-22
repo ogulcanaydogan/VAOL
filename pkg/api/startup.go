@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"strings"
 
 	"github.com/ogulcanaydogan/vaol/pkg/auth"
 	"github.com/ogulcanaydogan/vaol/pkg/merkle"
@@ -101,8 +102,44 @@ func (s *Server) rebuildMerkleTreeFromStore(ctx context.Context) error {
 			return fmt.Errorf("checkpoint signature verification failed: %w", err)
 		}
 	}
+	if err := s.verifyCheckpointAnchorContinuity(ctx, cp); err != nil {
+		return fmt.Errorf("checkpoint anchor continuity check failed: %w", err)
+	}
 	s.lastCheckpointAt = cp.Checkpoint.Timestamp
 
 	s.tree = rebuilt
+	return nil
+}
+
+func (s *Server) verifyCheckpointAnchorContinuity(ctx context.Context, cp *store.StoredCheckpoint) error {
+	if !s.config.AnchorContinuityRequired {
+		return nil
+	}
+	if cp == nil || cp.Checkpoint == nil {
+		return fmt.Errorf("checkpoint is nil")
+	}
+
+	entryID := strings.TrimSpace(cp.RekorEntryID)
+	if entryID == "" {
+		entryID = strings.TrimSpace(cp.Checkpoint.RekorEntryID)
+	}
+	if entryID == "" {
+		return fmt.Errorf("checkpoint missing anchor entry id")
+	}
+
+	if cp.Checkpoint.RekorEntryID != "" && cp.RekorEntryID != "" && cp.Checkpoint.RekorEntryID != cp.RekorEntryID {
+		return fmt.Errorf("checkpoint anchor entry mismatch: checkpoint=%q stored=%q", cp.Checkpoint.RekorEntryID, cp.RekorEntryID)
+	}
+
+	verifier, ok := s.anchorClient.(merkle.AnchorContinuityVerifier)
+	if !ok {
+		return fmt.Errorf("configured anchor client does not support continuity verification")
+	}
+
+	cpCopy := *cp.Checkpoint
+	cpCopy.RekorEntryID = entryID
+	if err := verifier.VerifyCheckpoint(ctx, &cpCopy, entryID); err != nil {
+		return err
+	}
 	return nil
 }

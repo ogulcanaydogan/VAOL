@@ -45,6 +45,7 @@ func (r *Report) ToMarkdown() string {
 	b.WriteString(fmt.Sprintf("| Merkle proofs | %s |\n", passFailIcon(r.Bundle.MerkleValid)))
 	b.WriteString(fmt.Sprintf("| Signatures | %s |\n", passFailIcon(r.Bundle.SignaturesValid)))
 	b.WriteString(fmt.Sprintf("| Schema | %s |\n", passFailIcon(r.Bundle.SchemaValid)))
+	b.WriteString(fmt.Sprintf("| Manifest | %s |\n", passFailIcon(r.Bundle.ManifestValid)))
 	b.WriteString("\n")
 
 	if r.Bundle.InvalidRecords > 0 {

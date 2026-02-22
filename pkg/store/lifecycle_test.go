@@ -40,4 +40,15 @@ func TestRunRetentionAndRotationJobs(t *testing.T) {
 	if report.DeletedCount != 1 {
 		t.Fatalf("expected 1 deleted row, got %d", report.DeletedCount)
 	}
+
+	events, err := st.ListKeyRotationEvents(ctx, 10)
+	if err != nil {
+		t.Fatalf("ListKeyRotationEvents: %v", err)
+	}
+	if len(events) != 1 {
+		t.Fatalf("expected 1 key rotation event, got %d", len(events))
+	}
+	if events[0].EvidenceHash == "" {
+		t.Fatal("expected key rotation evidence hash")
+	}
 }

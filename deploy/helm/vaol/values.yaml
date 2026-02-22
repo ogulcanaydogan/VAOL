@@ -23,6 +23,7 @@ profile:
     authMode: required
     policyMode: fail-closed
     anchorMode: local
+    anchorContinuityRequired: true
     sigstoreRekorRequired: true
     failOnStartupCheck: true
 
@@ -59,6 +60,8 @@ server:
   # Anchoring settings: off, local, http
   anchorMode: local
   anchorURL: ""
+  # Enforce startup verification that latest checkpoint matches anchored entry.
+  anchorContinuityRequired: false
   # Sigstore options
   sigstoreRekorRequired: false
   sigstoreFulcioURL: ""

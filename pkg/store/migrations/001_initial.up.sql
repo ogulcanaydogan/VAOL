@@ -53,6 +53,16 @@ CREATE TABLE IF NOT EXISTS payload_tombstones (
     created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
+CREATE TABLE IF NOT EXISTS key_rotation_events (
+    event_id TEXT PRIMARY KEY,
+    old_key_id TEXT NOT NULL,
+    new_key_id TEXT NOT NULL,
+    updated_count BIGINT NOT NULL,
+    executed_at TIMESTAMPTZ NOT NULL,
+    evidence_hash TEXT NOT NULL,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
 ALTER TABLE encrypted_payloads ADD COLUMN IF NOT EXISTS tenant_id TEXT NOT NULL DEFAULT '';
 ALTER TABLE encrypted_payloads ADD COLUMN IF NOT EXISTS ciphertext_hash TEXT;
 ALTER TABLE encrypted_payloads ADD COLUMN IF NOT EXISTS plaintext_hash TEXT;
@@ -65,6 +75,7 @@ CREATE INDEX IF NOT EXISTS idx_records_hash ON decision_records(record_hash);
 CREATE INDEX IF NOT EXISTS idx_checkpoints_tree_size ON merkle_checkpoints(tree_size DESC);
 CREATE INDEX IF NOT EXISTS idx_encrypted_retain_until ON encrypted_payloads(retain_until);
 CREATE INDEX IF NOT EXISTS idx_tombstones_tenant_deleted_at ON payload_tombstones(tenant_id, deleted_at DESC);
+CREATE INDEX IF NOT EXISTS idx_key_rotation_executed_at ON key_rotation_events(executed_at DESC);
 
 -- Enforce append-only semantics at the database level.
 -- Run this AFTER creating the vaol_app role:

@@ -22,52 +22,54 @@ import (
 
 // Config holds the server configuration.
 type Config struct {
-	Version              string        `json:"version"`
-	Addr                 string        `json:"addr"`
-	ReadTimeout          time.Duration `json:"read_timeout"`
-	WriteTimeout         time.Duration `json:"write_timeout"`
-	WebDir               string        `json:"web_dir"` // Path to auditor web UI directory (optional)
-	CheckpointEvery      int64         `json:"checkpoint_every"`
-	CheckpointInterval   time.Duration `json:"checkpoint_interval"`
-	AnchorMode           string        `json:"anchor_mode"` // off, local, http
-	AnchorURL            string        `json:"anchor_url"`
-	AuthMode             string        `json:"auth_mode"` // disabled, optional, required
-	JWTIssuer            string        `json:"jwt_issuer"`
-	JWTAudience          string        `json:"jwt_audience"`
-	JWTTenantClaim       string        `json:"jwt_tenant_claim"`
-	JWTSubjectClaim      string        `json:"jwt_subject_claim"`
-	JWKSFile             string        `json:"jwks_file"`
-	JWKSURL              string        `json:"jwks_url"`
-	JWTHS256Secret       string        `json:"jwt_hs256_secret"`
-	JWTClockSkew         time.Duration `json:"jwt_clock_skew"`
-	RebuildOnStart       bool          `json:"rebuild_on_start"`
-	FailOnStartupCheck   bool          `json:"fail_on_startup_check"`
-	IngestMode           string        `json:"ingest_mode"` // off, kafka
-	IngestKafkaBrokers   []string      `json:"ingest_kafka_brokers"`
-	IngestKafkaTopic     string        `json:"ingest_kafka_topic"`
-	IngestKafkaClient    string        `json:"ingest_kafka_client"`
-	IngestKafkaRequired  bool          `json:"ingest_kafka_required"`
-	IngestPublishTimeout time.Duration `json:"ingest_publish_timeout"`
+	Version                  string        `json:"version"`
+	Addr                     string        `json:"addr"`
+	ReadTimeout              time.Duration `json:"read_timeout"`
+	WriteTimeout             time.Duration `json:"write_timeout"`
+	WebDir                   string        `json:"web_dir"` // Path to auditor web UI directory (optional)
+	CheckpointEvery          int64         `json:"checkpoint_every"`
+	CheckpointInterval       time.Duration `json:"checkpoint_interval"`
+	AnchorMode               string        `json:"anchor_mode"` // off, local, http
+	AnchorURL                string        `json:"anchor_url"`
+	AnchorContinuityRequired bool          `json:"anchor_continuity_required"`
+	AuthMode                 string        `json:"auth_mode"` // disabled, optional, required
+	JWTIssuer                string        `json:"jwt_issuer"`
+	JWTAudience              string        `json:"jwt_audience"`
+	JWTTenantClaim           string        `json:"jwt_tenant_claim"`
+	JWTSubjectClaim          string        `json:"jwt_subject_claim"`
+	JWKSFile                 string        `json:"jwks_file"`
+	JWKSURL                  string        `json:"jwks_url"`
+	JWTHS256Secret           string        `json:"jwt_hs256_secret"`
+	JWTClockSkew             time.Duration `json:"jwt_clock_skew"`
+	RebuildOnStart           bool          `json:"rebuild_on_start"`
+	FailOnStartupCheck       bool          `json:"fail_on_startup_check"`
+	IngestMode               string        `json:"ingest_mode"` // off, kafka
+	IngestKafkaBrokers       []string      `json:"ingest_kafka_brokers"`
+	IngestKafkaTopic         string        `json:"ingest_kafka_topic"`
+	IngestKafkaClient        string        `json:"ingest_kafka_client"`
+	IngestKafkaRequired      bool          `json:"ingest_kafka_required"`
+	IngestPublishTimeout     time.Duration `json:"ingest_publish_timeout"`
 }
 
 // DefaultConfig returns sensible defaults for the server.
 func DefaultConfig() Config {
 	return Config{
-		Version:              "dev",
-		Addr:                 ":8080",
-		ReadTimeout:          30 * time.Second,
-		WriteTimeout:         30 * time.Second,
-		CheckpointEvery:      100,
-		CheckpointInterval:   5 * time.Minute,
-		AnchorMode:           "local",
-		AuthMode:             string(auth.ModeDisabled),
-		JWTTenantClaim:       "tenant_id",
-		JWTSubjectClaim:      "sub",
-		JWTClockSkew:         30 * time.Second,
-		RebuildOnStart:       true,
-		FailOnStartupCheck:   true,
-		IngestMode:           "off",
-		IngestPublishTimeout: 2 * time.Second,
+		Version:                  "dev",
+		Addr:                     ":8080",
+		ReadTimeout:              30 * time.Second,
+		WriteTimeout:             30 * time.Second,
+		CheckpointEvery:          100,
+		CheckpointInterval:       5 * time.Minute,
+		AnchorMode:               "local",
+		AnchorContinuityRequired: false,
+		AuthMode:                 string(auth.ModeDisabled),
+		JWTTenantClaim:           "tenant_id",
+		JWTSubjectClaim:          "sub",
+		JWTClockSkew:             30 * time.Second,
+		RebuildOnStart:           true,
+		FailOnStartupCheck:       true,
+		IngestMode:               "off",
+		IngestPublishTimeout:     2 * time.Second,
 	}
 }
 

@@ -9,6 +9,7 @@ import (
 
 	"github.com/ogulcanaydogan/vaol/pkg/merkle"
 	"github.com/ogulcanaydogan/vaol/pkg/signer"
+	"github.com/ogulcanaydogan/vaol/pkg/store"
 )
 
 func TestNewBundle(t *testing.T) {
@@ -26,6 +27,9 @@ func TestNewBundle(t *testing.T) {
 	}
 	if b.ExportedAt.IsZero() {
 		t.Error("exported_at should not be zero")
+	}
+	if b.Manifest.Algorithm != "sha256" {
+		t.Errorf("expected manifest algorithm sha256, got %s", b.Manifest.Algorithm)
 	}
 }
 
@@ -101,6 +105,9 @@ func TestBundleFinalize_Empty(t *testing.T) {
 
 	if b.Metadata.TotalRecords != 0 {
 		t.Errorf("expected 0 total records, got %d", b.Metadata.TotalRecords)
+	}
+	if b.Manifest.EvidenceHash == "" {
+		t.Error("expected manifest evidence hash")
 	}
 }
 
@@ -244,10 +251,60 @@ func TestBundleJSONStructure(t *testing.T) {
 		t.Fatalf("invalid JSON structure: %v", err)
 	}
 
-	requiredKeys := []string{"version", "exported_at", "filter", "records", "checkpoints", "metadata"}
+	requiredKeys := []string{"version", "exported_at", "filter", "records", "checkpoints", "metadata", "manifest"}
 	for _, key := range requiredKeys {
 		if _, ok := raw[key]; !ok {
 			t.Errorf("missing required key: %s", key)
 		}
+	}
+}
+
+func TestBundleManifestDeterministic(t *testing.T) {
+	b := NewBundle(BundleFilter{TenantID: "deterministic"})
+	b.AddRecord(BundleRecord{
+		SequenceNumber: 2,
+		Envelope: &signer.Envelope{
+			PayloadType: "test",
+			Payload:     "bbb",
+		},
+	})
+	b.AddRecord(BundleRecord{
+		SequenceNumber: 1,
+		Envelope: &signer.Envelope{
+			PayloadType: "test",
+			Payload:     "aaa",
+		},
+	})
+	b.AddKeyRotationEvents([]*store.KeyRotationEvent{
+		{
+			EventID:      "keyrot:2",
+			OldKeyID:     "k1",
+			NewKeyID:     "k2",
+			UpdatedCount: 5,
+			ExecutedAt:   time.Date(2026, 2, 22, 20, 0, 0, 0, time.UTC),
+			EvidenceHash: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+		},
+	})
+	b.Finalize()
+	firstHash := b.Manifest.EvidenceHash
+	if firstHash == "" {
+		t.Fatal("expected manifest hash")
+	}
+
+	manifest, err := b.RecomputeManifest()
+	if err != nil {
+		t.Fatalf("RecomputeManifest: %v", err)
+	}
+	if manifest.EvidenceHash != firstHash {
+		t.Fatalf("manifest hash mismatch: got %s want %s", manifest.EvidenceHash, firstHash)
+	}
+
+	b.Records[0].Envelope.Payload = "tampered"
+	manifest2, err := b.RecomputeManifest()
+	if err != nil {
+		t.Fatalf("RecomputeManifest after tamper: %v", err)
+	}
+	if manifest2.EvidenceHash == firstHash {
+		t.Fatal("expected manifest hash to change after tamper")
 	}
 }

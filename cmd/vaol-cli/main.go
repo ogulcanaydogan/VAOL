@@ -7,11 +7,13 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"time"
 
-	"github.com/spf13/cobra"
 	"github.com/ogulcanaydogan/vaol/pkg/export"
 	"github.com/ogulcanaydogan/vaol/pkg/signer"
+	"github.com/ogulcanaydogan/vaol/pkg/store"
 	"github.com/ogulcanaydogan/vaol/pkg/verifier"
+	"github.com/spf13/cobra"
 )
 
 // Build-time variables injected via ldflags.
@@ -34,6 +36,7 @@ func main() {
 		newVerifyCmd(),
 		newInspectCmd(),
 		newExportCmd(),
+		newLifecycleCmd(),
 		newKeysCmd(),
 	)
 
@@ -81,6 +84,9 @@ func newVerifyCmd() *cobra.Command {
 func newVerifyBundleCmd() *cobra.Command {
 	var pubKeyPath string
 	var profile string
+	var transcriptJSONPath string
+	var reportJSONPath string
+	var reportMarkdownPath string
 	cmd := &cobra.Command{
 		Use:   "bundle <file>",
 		Short: "Verify an exported audit bundle",
@@ -115,6 +121,38 @@ func newVerifyBundleCmd() *cobra.Command {
 				return fmt.Errorf("verifying bundle: %w", err)
 			}
 
+			if transcriptJSONPath != "" {
+				transcript, err := verifier.NewBundleTranscript(selectedProfile, bundle, result)
+				if err != nil {
+					return fmt.Errorf("building verification transcript: %w", err)
+				}
+				raw, err := transcript.ToJSON()
+				if err != nil {
+					return fmt.Errorf("serializing verification transcript: %w", err)
+				}
+				if err := os.WriteFile(transcriptJSONPath, raw, 0644); err != nil {
+					return fmt.Errorf("writing verification transcript: %w", err)
+				}
+			}
+
+			if reportJSONPath != "" || reportMarkdownPath != "" {
+				report := verifier.NewReport("VAOL Bundle Verification Report", *result)
+				if reportJSONPath != "" {
+					raw, err := report.ToJSON()
+					if err != nil {
+						return fmt.Errorf("serializing verification report json: %w", err)
+					}
+					if err := os.WriteFile(reportJSONPath, raw, 0644); err != nil {
+						return fmt.Errorf("writing verification report json: %w", err)
+					}
+				}
+				if reportMarkdownPath != "" {
+					if err := os.WriteFile(reportMarkdownPath, []byte(report.ToMarkdown()), 0644); err != nil {
+						return fmt.Errorf("writing verification report markdown: %w", err)
+					}
+				}
+			}
+
 			for _, rec := range result.Results {
 				if rec.Valid {
 					continue
@@ -135,6 +173,7 @@ func newVerifyBundleCmd() *cobra.Command {
 			fmt.Printf("  Chain intact:    %v\n", result.ChainIntact)
 			fmt.Printf("  Merkle valid:    %v\n", result.MerkleValid)
 			fmt.Printf("  Checkpoint valid:%v\n", result.CheckpointValid)
+			fmt.Printf("  Manifest valid:  %v\n", result.ManifestValid)
 
 			if result.InvalidRecords > 0 || result.Summary != "VERIFICATION PASSED" {
 				fmt.Println("\nVERIFICATION FAILED")
@@ -146,6 +185,9 @@ func newVerifyBundleCmd() *cobra.Command {
 	}
 	cmd.Flags().StringVar(&pubKeyPath, "public-key", "", "Ed25519 public key PEM for signature verification")
 	cmd.Flags().StringVar(&profile, "profile", string(verifier.ProfileBasic), "verification profile: basic, strict, fips")
+	cmd.Flags().StringVar(&transcriptJSONPath, "transcript-json", "", "write deterministic verification transcript to JSON file")
+	cmd.Flags().StringVar(&reportJSONPath, "report-json", "", "write verification report JSON")
+	cmd.Flags().StringVar(&reportMarkdownPath, "report-markdown", "", "write verification report Markdown")
 	return cmd
 }
 
@@ -281,6 +323,179 @@ func newKeysCmd() *cobra.Command {
 	}
 
 	cmd.AddCommand(newKeysGenerateCmd())
+	return cmd
+}
+
+func newLifecycleCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "lifecycle",
+		Short: "Run privacy lifecycle maintenance jobs",
+	}
+	cmd.AddCommand(
+		newLifecycleRetentionCmd(),
+		newLifecycleRotateKeysCmd(),
+		newLifecycleListTombstonesCmd(),
+		newLifecycleListKeyRotationsCmd(),
+	)
+	return cmd
+}
+
+func newLifecycleRetentionCmd() *cobra.Command {
+	var dsn string
+	var before string
+	var limit int
+	var reason string
+
+	cmd := &cobra.Command{
+		Use:   "retention",
+		Short: "Delete expired encrypted payloads and emit tombstones",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if dsn == "" {
+				return fmt.Errorf("--dsn is required")
+			}
+			runBefore := time.Now().UTC()
+			if before != "" {
+				parsed, err := time.Parse(time.RFC3339, before)
+				if err != nil {
+					return fmt.Errorf("parsing --before: %w", err)
+				}
+				runBefore = parsed.UTC()
+			}
+
+			st, err := store.Connect(context.Background(), dsn)
+			if err != nil {
+				return fmt.Errorf("connecting to postgres: %w", err)
+			}
+			defer st.Close()
+
+			report, err := store.RunRetentionJob(context.Background(), st, runBefore, limit, reason)
+			if err != nil {
+				return fmt.Errorf("running retention job: %w", err)
+			}
+			raw, err := json.MarshalIndent(report, "", "  ")
+			if err != nil {
+				return fmt.Errorf("serializing retention report: %w", err)
+			}
+			fmt.Println(string(raw))
+			return nil
+		},
+	}
+	cmd.Flags().StringVar(&dsn, "dsn", "", "PostgreSQL DSN")
+	cmd.Flags().StringVar(&before, "before", "", "retention cutoff timestamp (RFC3339, default now)")
+	cmd.Flags().IntVar(&limit, "limit", 100, "maximum rows to process")
+	cmd.Flags().StringVar(&reason, "reason", "retention_expired", "deletion reason")
+	return cmd
+}
+
+func newLifecycleRotateKeysCmd() *cobra.Command {
+	var dsn string
+	var oldKeyID string
+	var newKeyID string
+	var limit int
+
+	cmd := &cobra.Command{
+		Use:   "rotate-keys",
+		Short: "Rotate encrypted payload key metadata and persist key-rotation evidence",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if dsn == "" {
+				return fmt.Errorf("--dsn is required")
+			}
+			if oldKeyID == "" || newKeyID == "" {
+				return fmt.Errorf("--old-key and --new-key are required")
+			}
+
+			st, err := store.Connect(context.Background(), dsn)
+			if err != nil {
+				return fmt.Errorf("connecting to postgres: %w", err)
+			}
+			defer st.Close()
+
+			report, err := store.RunKeyRotationJob(context.Background(), st, oldKeyID, newKeyID, limit)
+			if err != nil {
+				return fmt.Errorf("running key rotation job: %w", err)
+			}
+			raw, err := json.MarshalIndent(report, "", "  ")
+			if err != nil {
+				return fmt.Errorf("serializing key rotation report: %w", err)
+			}
+			fmt.Println(string(raw))
+			return nil
+		},
+	}
+	cmd.Flags().StringVar(&dsn, "dsn", "", "PostgreSQL DSN")
+	cmd.Flags().StringVar(&oldKeyID, "old-key", "", "previous encryption key ID")
+	cmd.Flags().StringVar(&newKeyID, "new-key", "", "new encryption key ID")
+	cmd.Flags().IntVar(&limit, "limit", 1000, "maximum rows to process")
+	return cmd
+}
+
+func newLifecycleListTombstonesCmd() *cobra.Command {
+	var dsn string
+	var tenantID string
+	var limit int
+
+	cmd := &cobra.Command{
+		Use:   "list-tombstones",
+		Short: "List payload tombstones",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if dsn == "" {
+				return fmt.Errorf("--dsn is required")
+			}
+			st, err := store.Connect(context.Background(), dsn)
+			if err != nil {
+				return fmt.Errorf("connecting to postgres: %w", err)
+			}
+			defer st.Close()
+
+			tombstones, err := st.ListPayloadTombstones(context.Background(), tenantID, limit)
+			if err != nil {
+				return fmt.Errorf("listing tombstones: %w", err)
+			}
+			raw, err := json.MarshalIndent(tombstones, "", "  ")
+			if err != nil {
+				return fmt.Errorf("serializing tombstones: %w", err)
+			}
+			fmt.Println(string(raw))
+			return nil
+		},
+	}
+	cmd.Flags().StringVar(&dsn, "dsn", "", "PostgreSQL DSN")
+	cmd.Flags().StringVar(&tenantID, "tenant-id", "", "tenant filter (optional)")
+	cmd.Flags().IntVar(&limit, "limit", 100, "maximum rows")
+	return cmd
+}
+
+func newLifecycleListKeyRotationsCmd() *cobra.Command {
+	var dsn string
+	var limit int
+
+	cmd := &cobra.Command{
+		Use:   "list-key-rotations",
+		Short: "List key-rotation evidence events",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if dsn == "" {
+				return fmt.Errorf("--dsn is required")
+			}
+			st, err := store.Connect(context.Background(), dsn)
+			if err != nil {
+				return fmt.Errorf("connecting to postgres: %w", err)
+			}
+			defer st.Close()
+
+			events, err := st.ListKeyRotationEvents(context.Background(), limit)
+			if err != nil {
+				return fmt.Errorf("listing key-rotation events: %w", err)
+			}
+			raw, err := json.MarshalIndent(events, "", "  ")
+			if err != nil {
+				return fmt.Errorf("serializing key-rotation events: %w", err)
+			}
+			fmt.Println(string(raw))
+			return nil
+		},
+	}
+	cmd.Flags().StringVar(&dsn, "dsn", "", "PostgreSQL DSN")
+	cmd.Flags().IntVar(&limit, "limit", 100, "maximum rows")
 	return cmd
 }
 

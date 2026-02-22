@@ -40,7 +40,19 @@ func (s *Server) handleAppendRecord(w http.ResponseWriter, r *http.Request) {
 		rec.Timestamp = time.Now().UTC()
 	}
 
-	tenantHeader := tenantContextFromRequest(r)
+	tenantHeader, tenantErr := tenantContextFromRequestValidated(r)
+	if tenantErr != nil {
+		writeJSON(w, http.StatusForbidden, map[string]any{
+			"error": tenantErr.Error(),
+			"decision": map[string]any{
+				"decision":             "deny",
+				"allow":                false,
+				"decision_reason_code": "tenant_context_conflict",
+				"rule_ids":             []string{"tenant_binding"},
+			},
+		})
+		return
+	}
 	if tenantHeader != "" {
 		if rec.Identity.TenantID == "" {
 			rec.Identity.TenantID = tenantHeader
@@ -170,6 +182,11 @@ func (s *Server) handleAppendRecord(w http.ResponseWriter, r *http.Request) {
 	}
 	proofID := proofIDForRequestID(rec.RequestID)
 	rec.Integrity.InclusionProofRef = fmt.Sprintf("/v1/proofs/%s", proofID)
+
+	if err := record.Validate(&rec); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid decision record: %v", err)
+		return
+	}
 
 	// Sign after Merkle fields are populated so the signed payload includes
 	// full integrity evidence (except sequence number, which is assigned by store).
@@ -587,6 +604,12 @@ func (s *Server) handleExport(w http.ResponseWriter, r *http.Request) {
 			RekorEntryID: cp.RekorEntryID,
 		})
 	}
+	if tombstones, err := s.store.ListPayloadTombstones(r.Context(), req.TenantID, filter.Limit); err == nil {
+		bundle.AddPayloadTombstones(tombstones)
+	}
+	if rotationEvents, err := s.store.ListKeyRotationEvents(r.Context(), filter.Limit); err == nil {
+		bundle.AddKeyRotationEvents(rotationEvents)
+	}
 
 	bundle.Finalize()
 	writeJSON(w, http.StatusOK, bundle)
@@ -677,11 +700,39 @@ func firstHeaderValue(r *http.Request, keys ...string) string {
 }
 
 func tenantContextFromRequest(r *http.Request) string {
-	return firstHeaderValue(r, "X-VAOL-Tenant-ID", "X-Tenant-ID")
+	tenant, _ := tenantContextFromRequestValidated(r)
+	return tenant
+}
+
+func tenantContextFromRequestValidated(r *http.Request) (string, error) {
+	vaolTenant := strings.TrimSpace(r.Header.Get("X-VAOL-Tenant-ID"))
+	legacyTenant := strings.TrimSpace(r.Header.Get("X-Tenant-ID"))
+	if vaolTenant != "" && legacyTenant != "" && vaolTenant != legacyTenant {
+		return "", fmt.Errorf("conflicting tenant context headers")
+	}
+	if vaolTenant != "" {
+		return vaolTenant, nil
+	}
+	if legacyTenant != "" {
+		return legacyTenant, nil
+	}
+	return "", nil
 }
 
 func enforceTenantAccess(w http.ResponseWriter, r *http.Request, targetTenant string) bool {
-	callerTenant := tenantContextFromRequest(r)
+	callerTenant, err := tenantContextFromRequestValidated(r)
+	if err != nil {
+		writeJSON(w, http.StatusForbidden, map[string]any{
+			"error": err.Error(),
+			"decision": map[string]any{
+				"decision":             "deny",
+				"allow":                false,
+				"decision_reason_code": "tenant_context_conflict",
+				"rule_ids":             []string{"tenant_binding"},
+			},
+		})
+		return false
+	}
 	if callerTenant == "" {
 		writeJSON(w, http.StatusForbidden, map[string]any{
 			"error": "missing tenant context",
@@ -710,7 +761,19 @@ func enforceTenantAccess(w http.ResponseWriter, r *http.Request, targetTenant st
 }
 
 func enforceTenantFilter(w http.ResponseWriter, r *http.Request, requestedTenant string) (string, bool) {
-	callerTenant := tenantContextFromRequest(r)
+	callerTenant, err := tenantContextFromRequestValidated(r)
+	if err != nil {
+		writeJSON(w, http.StatusForbidden, map[string]any{
+			"error": err.Error(),
+			"decision": map[string]any{
+				"decision":             "deny",
+				"allow":                false,
+				"decision_reason_code": "tenant_context_conflict",
+				"rule_ids":             []string{"tenant_binding"},
+			},
+		})
+		return "", false
+	}
 	if callerTenant == "" {
 		writeJSON(w, http.StatusForbidden, map[string]any{
 			"error": "missing tenant context",

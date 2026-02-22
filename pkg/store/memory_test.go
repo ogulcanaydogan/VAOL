@@ -332,6 +332,34 @@ func TestMemoryStoreEncryptedPayloadLifecycle(t *testing.T) {
 	}
 }
 
+func TestMemoryStoreKeyRotationEvents(t *testing.T) {
+	ctx := context.Background()
+	s := NewMemoryStore()
+
+	event := &KeyRotationEvent{
+		EventID:      "keyrot:1",
+		OldKeyID:     "kek-v1",
+		NewKeyID:     "kek-v2",
+		UpdatedCount: 3,
+		ExecutedAt:   time.Now().UTC(),
+		EvidenceHash: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+	}
+	if err := s.SaveKeyRotationEvent(ctx, event); err != nil {
+		t.Fatalf("SaveKeyRotationEvent: %v", err)
+	}
+
+	events, err := s.ListKeyRotationEvents(ctx, 10)
+	if err != nil {
+		t.Fatalf("ListKeyRotationEvents: %v", err)
+	}
+	if len(events) != 1 {
+		t.Fatalf("expected 1 event, got %d", len(events))
+	}
+	if events[0].NewKeyID != "kek-v2" {
+		t.Fatalf("unexpected new key id %q", events[0].NewKeyID)
+	}
+}
+
 func makeTestStoredRecord() *StoredRecord {
 	return &StoredRecord{
 		RequestID:          uuid.New(),

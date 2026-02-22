@@ -45,6 +45,7 @@ type BundleResult struct {
 	SchemaValid     bool     `json:"schema_valid"`
 	CheckpointValid bool     `json:"checkpoint_valid"`
 	PolicyHashValid bool     `json:"policy_hash_valid"`
+	ManifestValid   bool     `json:"manifest_valid"`
 	Results         []Result `json:"results,omitempty"`
 	Summary         string   `json:"summary"`
 }
@@ -403,6 +404,7 @@ func (v *Verifier) VerifyBundle(ctx context.Context, bundle *export.Bundle, prof
 		SchemaValid:     true,
 		CheckpointValid: true,
 		PolicyHashValid: true,
+		ManifestValid:   true,
 		Results:         make([]Result, 0, len(bundle.Records)),
 	}
 
@@ -552,8 +554,17 @@ func (v *Verifier) VerifyBundle(ctx context.Context, bundle *export.Bundle, prof
 		}
 	}
 
+	if strings.TrimSpace(bundle.Manifest.Algorithm) != "sha256" || strings.TrimSpace(bundle.Manifest.EvidenceHash) == "" {
+		out.ManifestValid = false
+	} else {
+		recomputed, err := bundle.RecomputeManifest()
+		if err != nil || recomputed.EvidenceHash != bundle.Manifest.EvidenceHash {
+			out.ManifestValid = false
+		}
+	}
+
 	out.Summary = "VERIFICATION PASSED"
-	if !out.ChainIntact || !out.MerkleValid || !out.SignaturesValid || !out.SchemaValid || !out.CheckpointValid || !out.PolicyHashValid || out.InvalidRecords > 0 {
+	if !out.ChainIntact || !out.MerkleValid || !out.SignaturesValid || !out.SchemaValid || !out.CheckpointValid || !out.PolicyHashValid || !out.ManifestValid || out.InvalidRecords > 0 {
 		out.Summary = "VERIFICATION FAILED"
 	}
 

@@ -12,25 +12,27 @@ import (
 
 // MemoryStore is an in-memory append-only store for testing and development.
 type MemoryStore struct {
-	mu          sync.RWMutex
-	records     []*StoredRecord
-	byReqID     map[uuid.UUID]*StoredRecord
-	proofs      map[string]*StoredProof
-	checkpoints []*StoredCheckpoint
-	encrypted   map[uuid.UUID]*EncryptedPayload
-	tombstones  []*PayloadTombstone
-	sequence    int64
+	mu           sync.RWMutex
+	records      []*StoredRecord
+	byReqID      map[uuid.UUID]*StoredRecord
+	proofs       map[string]*StoredProof
+	checkpoints  []*StoredCheckpoint
+	encrypted    map[uuid.UUID]*EncryptedPayload
+	tombstones   []*PayloadTombstone
+	keyRotations []*KeyRotationEvent
+	sequence     int64
 }
 
 // NewMemoryStore creates a new in-memory store.
 func NewMemoryStore() *MemoryStore {
 	return &MemoryStore{
-		records:     make([]*StoredRecord, 0, 1024),
-		byReqID:     make(map[uuid.UUID]*StoredRecord),
-		proofs:      make(map[string]*StoredProof),
-		checkpoints: make([]*StoredCheckpoint, 0, 64),
-		encrypted:   make(map[uuid.UUID]*EncryptedPayload),
-		tombstones:  make([]*PayloadTombstone, 0, 64),
+		records:      make([]*StoredRecord, 0, 1024),
+		byReqID:      make(map[uuid.UUID]*StoredRecord),
+		proofs:       make(map[string]*StoredProof),
+		checkpoints:  make([]*StoredCheckpoint, 0, 64),
+		encrypted:    make(map[uuid.UUID]*EncryptedPayload),
+		tombstones:   make([]*PayloadTombstone, 0, 64),
+		keyRotations: make([]*KeyRotationEvent, 0, 32),
 	}
 }
 
@@ -302,6 +304,39 @@ func (m *MemoryStore) ListPayloadTombstones(_ context.Context, tenantID string, 
 			continue
 		}
 		cp := *ts
+		out = append(out, &cp)
+		if len(out) >= limit {
+			break
+		}
+	}
+	return out, nil
+}
+
+func (m *MemoryStore) SaveKeyRotationEvent(_ context.Context, event *KeyRotationEvent) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if event == nil {
+		return fmt.Errorf("event is required")
+	}
+	cp := *event
+	if cp.CreatedAt.IsZero() {
+		cp.CreatedAt = time.Now().UTC()
+	}
+	m.keyRotations = append(m.keyRotations, &cp)
+	return nil
+}
+
+func (m *MemoryStore) ListKeyRotationEvents(_ context.Context, limit int) ([]*KeyRotationEvent, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	if limit <= 0 {
+		limit = 100
+	}
+	out := make([]*KeyRotationEvent, 0, limit)
+	for _, evt := range m.keyRotations {
+		cp := *evt
 		out = append(out, &cp)
 		if len(out) >= limit {
 			break

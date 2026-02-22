@@ -67,6 +67,17 @@ type PayloadTombstone struct {
 	CreatedAt       time.Time `json:"created_at"`
 }
 
+// KeyRotationEvent is immutable evidence for an encryption key metadata rotation run.
+type KeyRotationEvent struct {
+	EventID      string    `json:"event_id"`
+	OldKeyID     string    `json:"old_key_id"`
+	NewKeyID     string    `json:"new_key_id"`
+	UpdatedCount int64     `json:"updated_count"`
+	ExecutedAt   time.Time `json:"executed_at"`
+	EvidenceHash string    `json:"evidence_hash"`
+	CreatedAt    time.Time `json:"created_at"`
+}
+
 // ListFilter specifies criteria for listing records.
 type ListFilter struct {
 	TenantID       string
@@ -112,6 +123,12 @@ type Store interface {
 
 	// ListPayloadTombstones lists payload deletion tombstones (tenant optional).
 	ListPayloadTombstones(ctx context.Context, tenantID string, limit int) ([]*PayloadTombstone, error)
+
+	// SaveKeyRotationEvent persists immutable key-rotation evidence metadata.
+	SaveKeyRotationEvent(ctx context.Context, event *KeyRotationEvent) error
+
+	// ListKeyRotationEvents lists key-rotation evidence events.
+	ListKeyRotationEvents(ctx context.Context, limit int) ([]*KeyRotationEvent, error)
 
 	// SaveProof stores an inclusion proof and returns the assigned proof ID.
 	SaveProof(ctx context.Context, proof *StoredProof) error

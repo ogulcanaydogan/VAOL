@@ -377,6 +377,48 @@ func TestListRecords_WithTenantFilter(t *testing.T) {
 	}
 }
 
+func TestAppendRecord_ConflictingTenantHeaders(t *testing.T) {
+	ts, _, _ := newTestServer(t)
+	defer ts.Close()
+
+	body := validRecordJSON(t)
+	resp := mustPostWithHeaders(t, ts.URL+"/v1/records", "application/json", body, map[string]string{
+		"X-VAOL-Tenant-ID": "tenant-a",
+		"X-Tenant-ID":      "tenant-b",
+	})
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusForbidden {
+		t.Fatalf("expected 403, got %d", resp.StatusCode)
+	}
+
+	var deny map[string]any
+	decodeJSON(t, resp.Body, &deny)
+	decision, _ := deny["decision"].(map[string]any)
+	if decision["decision_reason_code"] != "tenant_context_conflict" {
+		t.Fatalf("expected tenant_context_conflict, got %v", decision["decision_reason_code"])
+	}
+}
+
+func TestListRecords_ConflictingTenantHeaders(t *testing.T) {
+	ts, _, _ := newTestServer(t)
+	defer ts.Close()
+
+	body := validRecordJSON(t)
+	r := mustPost(t, ts.URL+"/v1/records", "application/json", body)
+	r.Body.Close()
+
+	resp := mustGetWithHeaders(t, ts.URL+"/v1/records?limit=10", map[string]string{
+		"X-VAOL-Tenant-ID": "tenant-a",
+		"X-Tenant-ID":      "tenant-b",
+	})
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusForbidden {
+		t.Fatalf("expected 403, got %d", resp.StatusCode)
+	}
+}
+
 func TestGetProof(t *testing.T) {
 	ts, _, _ := newTestServer(t)
 	defer ts.Close()
@@ -757,7 +799,9 @@ func (e *denyAllEngine) Evaluate(_ context.Context, _ *policy.Input) (*policy.De
 	}, nil
 }
 
-func (e *denyAllEngine) PolicyHash() string     { return "sha256:test" }
+func (e *denyAllEngine) PolicyHash() string {
+	return "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+}
 func (e *denyAllEngine) PolicyBundleID() string { return "test-bundle" }
 func (e *denyAllEngine) Version() string        { return "test/1.0" }
 
@@ -772,7 +816,9 @@ func (e *allowAllEngine) Evaluate(_ context.Context, _ *policy.Input) (*policy.D
 	}, nil
 }
 
-func (e *allowAllEngine) PolicyHash() string     { return "sha256:test" }
+func (e *allowAllEngine) PolicyHash() string {
+	return "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+}
 func (e *allowAllEngine) PolicyBundleID() string { return "test-bundle" }
 func (e *allowAllEngine) Version() string        { return "test/1.0" }
 

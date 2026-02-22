@@ -288,6 +288,16 @@ CREATE TABLE IF NOT EXISTS payload_tombstones (
     created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
+CREATE TABLE IF NOT EXISTS key_rotation_events (
+    event_id TEXT PRIMARY KEY,
+    old_key_id TEXT NOT NULL,
+    new_key_id TEXT NOT NULL,
+    updated_count BIGINT NOT NULL,
+    executed_at TIMESTAMPTZ NOT NULL,
+    evidence_hash TEXT NOT NULL,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
 ALTER TABLE encrypted_payloads ADD COLUMN IF NOT EXISTS tenant_id TEXT NOT NULL DEFAULT '';
 ALTER TABLE encrypted_payloads ADD COLUMN IF NOT EXISTS ciphertext_hash TEXT;
 ALTER TABLE encrypted_payloads ADD COLUMN IF NOT EXISTS plaintext_hash TEXT;
@@ -299,6 +309,7 @@ CREATE INDEX IF NOT EXISTS idx_records_hash ON decision_records(record_hash);
 CREATE INDEX IF NOT EXISTS idx_proof_request_id ON proof_index(request_id);
 CREATE INDEX IF NOT EXISTS idx_encrypted_retain_until ON encrypted_payloads(retain_until);
 CREATE INDEX IF NOT EXISTS idx_tombstones_tenant_deleted_at ON payload_tombstones(tenant_id, deleted_at DESC);
+CREATE INDEX IF NOT EXISTS idx_key_rotation_executed_at ON key_rotation_events(executed_at DESC);
 `
 
 // SaveCheckpoint persists a signed Merkle checkpoint.
@@ -607,6 +618,47 @@ func (s *PostgresStore) ListPayloadTombstones(ctx context.Context, tenantID stri
 			return nil, fmt.Errorf("scanning payload tombstone: %w", err)
 		}
 		out = append(out, &ts)
+	}
+	return out, rows.Err()
+}
+
+func (s *PostgresStore) SaveKeyRotationEvent(ctx context.Context, event *KeyRotationEvent) error {
+	if event == nil {
+		return fmt.Errorf("event is required")
+	}
+	_, err := s.pool.Exec(ctx, `
+		INSERT INTO key_rotation_events (
+			event_id, old_key_id, new_key_id, updated_count, executed_at, evidence_hash, created_at
+		) VALUES ($1,$2,$3,$4,$5,$6,$7)
+	`, event.EventID, event.OldKeyID, event.NewKeyID, event.UpdatedCount, event.ExecutedAt, event.EvidenceHash, event.CreatedAt)
+	if err != nil {
+		return fmt.Errorf("saving key rotation event: %w", err)
+	}
+	return nil
+}
+
+func (s *PostgresStore) ListKeyRotationEvents(ctx context.Context, limit int) ([]*KeyRotationEvent, error) {
+	if limit <= 0 {
+		limit = 100
+	}
+	rows, err := s.pool.Query(ctx, `
+		SELECT event_id, old_key_id, new_key_id, updated_count, executed_at, evidence_hash, created_at
+		FROM key_rotation_events
+		ORDER BY executed_at DESC
+		LIMIT $1
+	`, limit)
+	if err != nil {
+		return nil, fmt.Errorf("querying key rotation events: %w", err)
+	}
+	defer rows.Close()
+
+	out := make([]*KeyRotationEvent, 0, limit)
+	for rows.Next() {
+		var evt KeyRotationEvent
+		if err := rows.Scan(&evt.EventID, &evt.OldKeyID, &evt.NewKeyID, &evt.UpdatedCount, &evt.ExecutedAt, &evt.EvidenceHash, &evt.CreatedAt); err != nil {
+			return nil, fmt.Errorf("scanning key rotation event: %w", err)
+		}
+		out = append(out, &evt)
 	}
 	return out, rows.Err()
 }
