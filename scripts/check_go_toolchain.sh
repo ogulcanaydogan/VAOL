@@ -8,8 +8,8 @@ to_minor() {
 }
 
 mapfile -t workflow_go_versions < <(
-  rg --no-heading --no-line-number -o 'go-version:\s*"[^"]+"' \
-    "$ROOT_DIR/.github/workflows"/*.yml |
+  grep -hE 'go-version:[[:space:]]*"[^"]+"' \
+    "$ROOT_DIR/.github/workflows"/*.yml 2>/dev/null |
     sed -E 's/.*"([^"]+)"/\1/' |
     sort -u
 )
@@ -28,9 +28,9 @@ workflow_go_version="${workflow_go_versions[0]}"
 workflow_go_minor="$(to_minor "$workflow_go_version")"
 
 mapfile -t docker_builder_versions < <(
-  rg --no-heading --no-line-number -o 'FROM[[:space:]]+golang:[0-9]+\.[0-9]+(\.[0-9]+)?' \
-    "$ROOT_DIR/deploy/docker"/Dockerfile* |
-    sed -E 's/.*golang:([0-9]+\.[0-9]+(\.[0-9]+)?)/\1/' |
+  grep -hE '^FROM[[:space:]]+golang:[0-9]+\.[0-9]+(\.[0-9]+)?' \
+    "$ROOT_DIR/deploy/docker"/Dockerfile* 2>/dev/null |
+    sed -E 's/^FROM[[:space:]]+golang:([0-9]+\.[0-9]+(\.[0-9]+)?).*/\1/' |
     sort -u
 )
 
