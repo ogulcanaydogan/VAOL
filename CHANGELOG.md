@@ -112,9 +112,9 @@ Initial public release of the Verifiable AI Output Ledger.
 - Startup Merkle rebuild with checkpoint/root validation.
 - Tenant-bound API access with cross-tenant rejection.
 
-[1.0.0]: https://github.com/ogulcanaydogan/vaol/releases/tag/v1.0.0
-[0.4.0]: https://github.com/ogulcanaydogan/vaol/releases/tag/v0.4.0
-[0.3.1]: https://github.com/ogulcanaydogan/vaol/releases/tag/v0.3.1
-[0.3.0]: https://github.com/ogulcanaydogan/vaol/releases/tag/v0.3.0
-[0.2.0]: https://github.com/ogulcanaydogan/vaol/releases/tag/v0.2.0
-[0.1.0]: https://github.com/ogulcanaydogan/vaol/releases/tag/v0.1.0
+[1.0.0]: https://github.com/ogulcanaydogan/Verifiable-AI-Output-Ledger/releases/tag/v1.0.0
+[0.4.0]: https://github.com/ogulcanaydogan/Verifiable-AI-Output-Ledger/releases/tag/v0.4.0
+[0.3.1]: https://github.com/ogulcanaydogan/Verifiable-AI-Output-Ledger/releases/tag/v0.3.1
+[0.3.0]: https://github.com/ogulcanaydogan/Verifiable-AI-Output-Ledger/releases/tag/v0.3.0
+[0.2.0]: https://github.com/ogulcanaydogan/Verifiable-AI-Output-Ledger/releases/tag/v0.2.0
+[0.1.0]: https://github.com/ogulcanaydogan/Verifiable-AI-Output-Ledger/releases/tag/v0.1.0

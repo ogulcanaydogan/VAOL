@@ -21,7 +21,7 @@ This runbook defines the release flow for VAOL and records repository-mode const
 4. Confirm release workflow completion:
    - `gh run list --workflow Release --limit 1`
 5. Verify release object:
-   - `gh api repos/ogulcanaydogan/vaol/releases/tags/vX.Y.Z`
+   - `gh api repos/ogulcanaydogan/Verifiable-AI-Output-Ledger/releases/tags/vX.Y.Z`
 
 ## Post-Release Smoke Validation
 
