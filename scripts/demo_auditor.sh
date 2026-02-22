@@ -11,7 +11,9 @@ KEY_DIR="${RUN_DIR}/keys"
 LOG_DIR="${RUN_DIR}/logs"
 ARTIFACT_DIR="${RUN_DIR}/artifacts"
 
-SERVER_ADDR="${VAOL_DEMO_ADDR:-127.0.0.1:18080}"
+DEFAULT_SERVER_ADDR="127.0.0.1:18080"
+REQUESTED_SERVER_ADDR="${VAOL_DEMO_ADDR:-}"
+SERVER_ADDR="${REQUESTED_SERVER_ADDR:-${DEFAULT_SERVER_ADDR}}"
 SERVER_URL="http://${SERVER_ADDR}"
 TENANT_ID="${VAOL_DEMO_TENANT:-acme-health-${RUN_ID}}"
 OPA_POLICY="${VAOL_DEMO_OPA_POLICY:-v1/data/vaol/mandatory_citations}"
@@ -36,6 +38,53 @@ ensure_docker_ready() {
     echo "docker daemon is not ready. Start or unpause Docker Desktop and retry." >&2
     exit 1
   fi
+}
+
+is_listen_addr_in_use() {
+  local host="$1"
+  local port="$2"
+  if command -v lsof >/dev/null 2>&1; then
+    lsof -nP -iTCP@"${host}:${port}" -sTCP:LISTEN >/dev/null 2>&1
+    return $?
+  fi
+  return 1
+}
+
+select_server_addr() {
+  local host="${SERVER_ADDR%:*}"
+  local port="${SERVER_ADDR##*:}"
+
+  if [[ -z "${host}" ]] || [[ -z "${port}" ]] || [[ ! "${port}" =~ ^[0-9]+$ ]]; then
+    echo "invalid VAOL_DEMO_ADDR: ${SERVER_ADDR} (expected host:port)" >&2
+    exit 1
+  fi
+
+  if ! is_listen_addr_in_use "${host}" "${port}"; then
+    SERVER_URL="http://${SERVER_ADDR}"
+    return
+  fi
+
+  if [[ -n "${REQUESTED_SERVER_ADDR}" ]]; then
+    echo "configured VAOL_DEMO_ADDR ${SERVER_ADDR} is already in use; choose a different address" >&2
+    exit 1
+  fi
+
+  local base_port="${port}"
+  for offset in $(seq 1 50); do
+    local candidate_port=$((base_port + offset))
+    if ((candidate_port > 65535)); then
+      break
+    fi
+    if ! is_listen_addr_in_use "${host}" "${candidate_port}"; then
+      SERVER_ADDR="${host}:${candidate_port}"
+      SERVER_URL="http://${SERVER_ADDR}"
+      echo "[demo] default server address ${host}:${base_port} is busy; using ${SERVER_ADDR}" >&2
+      return
+    fi
+  done
+
+  echo "no free server port found near ${host}:${base_port}; set VAOL_DEMO_ADDR explicitly" >&2
+  exit 1
 }
 
 print_server_log_tail() {
@@ -65,6 +114,7 @@ if [[ "${SKIP_BUILD}" != "1" ]]; then
   require_cmd go
 fi
 ensure_docker_ready
+select_server_addr
 
 if [[ "${SKIP_BUILD}" == "1" ]]; then
   if [[ ! -x "${BIN_DIR}/vaol-server" ]] || [[ ! -x "${BIN_DIR}/vaol" ]]; then
