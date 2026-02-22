@@ -135,6 +135,9 @@ TAMPERED_BUNDLE_JSON="${ARTIFACT_DIR}/audit-bundle-tampered.json"
 VERIFY_PASS_LOG="${ARTIFACT_DIR}/verify-pass.log"
 VERIFY_FAIL_LOG="${ARTIFACT_DIR}/verify-fail.log"
 REPORT_MD="${ARTIFACT_DIR}/auditor-report.md"
+VERIFY_TRANSCRIPT_JSON="${ARTIFACT_DIR}/verify-transcript.json"
+VERIFY_REPORT_JSON="${ARTIFACT_DIR}/verify-report.json"
+VERIFY_REPORT_MD="${ARTIFACT_DIR}/verify-report.md"
 
 cat >"${COMPLIANT_REQ}" <<EOF
 {
@@ -254,7 +257,17 @@ if [[ "${RECORD_COUNT}" -lt 1 ]]; then
 fi
 
 echo "[demo] verifying bundle (expected pass)..."
-"${BIN_DIR}/vaol" verify bundle "${BUNDLE_JSON}" --public-key "${KEY_DIR}/vaol-signing.pub" >"${VERIFY_PASS_LOG}" 2>&1
+"${BIN_DIR}/vaol" verify bundle "${BUNDLE_JSON}" \
+  --public-key "${KEY_DIR}/vaol-signing.pub" \
+  --transcript-json "${VERIFY_TRANSCRIPT_JSON}" \
+  --report-json "${VERIFY_REPORT_JSON}" \
+  --report-markdown "${VERIFY_REPORT_MD}" \
+  >"${VERIFY_PASS_LOG}" 2>&1
+
+if [[ ! -s "${VERIFY_TRANSCRIPT_JSON}" ]] || [[ ! -s "${VERIFY_REPORT_JSON}" ]] || [[ ! -s "${VERIFY_REPORT_MD}" ]]; then
+  echo "verifier artifacts were not generated as expected" >&2
+  exit 1
+fi
 
 echo "[demo] tampering bundle signature and verifying (expected fail)..."
 jq '.records[0].dsse_envelope.signatures[0].sig = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"' \
@@ -293,6 +306,9 @@ cat >"${REPORT_MD}" <<EOF
 - Tampered bundle: \`${TAMPERED_BUNDLE_JSON}\`
 - Verify pass log: \`${VERIFY_PASS_LOG}\`
 - Verify fail log: \`${VERIFY_FAIL_LOG}\`
+- Verify transcript JSON: \`${VERIFY_TRANSCRIPT_JSON}\`
+- Verify report JSON: \`${VERIFY_REPORT_JSON}\`
+- Verify report Markdown: \`${VERIFY_REPORT_MD}\`
 - VAOL server log: \`${LOG_DIR}/vaol-server.log\`
 
 ## Key Record

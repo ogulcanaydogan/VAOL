@@ -12,14 +12,14 @@ permissions:
 jobs:
   toolchain-guard:
     name: Toolchain Guard (Go)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
       - run: ./scripts/check_go_toolchain.sh
 
   lint-go:
     name: Lint (Go)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     needs: [toolchain-guard]
     steps:
       - uses: actions/checkout@v4
@@ -28,11 +28,11 @@ jobs:
           go-version: "1.24.13"
       - uses: golangci/golangci-lint-action@v6
         with:
-          version: latest
+          version: 1.64.8
 
   lint-python:
     name: Lint (Python)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -44,7 +44,7 @@ jobs:
 
   test-go:
     name: Test (Go Full)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     needs: [toolchain-guard]
     steps:
       - uses: actions/checkout@v4
@@ -55,7 +55,7 @@ jobs:
 
   test-e2e-tamper:
     name: Test (E2E + Tamper)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     needs: [toolchain-guard]
     steps:
       - uses: actions/checkout@v4
@@ -66,7 +66,7 @@ jobs:
 
   test-python:
     name: Test (Python)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -76,7 +76,7 @@ jobs:
 
   test-typescript:
     name: Test (TypeScript)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -86,7 +86,7 @@ jobs:
 
   lint-typescript:
     name: Lint (TypeScript)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -96,17 +96,17 @@ jobs:
 
   test-policies:
     name: Test (OPA Policies)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
       - uses: open-policy-agent/setup-opa@v2
         with:
-          version: latest
+          version: 1.13.2
       - run: opa test policies/ -v
 
   bench:
     name: Benchmarks
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     needs: [toolchain-guard]
     steps:
       - uses: actions/checkout@v4
@@ -121,18 +121,18 @@ jobs:
 
   security:
     name: Security Scan
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     needs: [toolchain-guard]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
         with:
           go-version: "1.24.13"
-      - run: go install github.com/securego/gosec/v2/cmd/gosec@latest
-      - run: go install golang.org/x/vuln/cmd/govulncheck@latest
+      - run: go install github.com/securego/gosec/v2/cmd/gosec@v2.23.0
+      - run: go install golang.org/x/vuln/cmd/govulncheck@v1.1.4
       - run: gosec -quiet -exclude=G104,G117,G204,G304,G306,G704 -exclude-dir=gen ./...
       - run: govulncheck ./...
-      - uses: aquasecurity/trivy-action@master
+      - uses: aquasecurity/trivy-action@0.34.1
         with:
           scan-type: fs
           scan-ref: .
@@ -140,12 +140,12 @@ jobs:
 
   sbom:
     name: SBOM
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     permissions:
       contents: read
     steps:
       - uses: actions/checkout@v4
-      - uses: anchore/sbom-action@v0
+      - uses: anchore/sbom-action@v0.22.2
         with:
           path: .
           format: spdx-json
@@ -157,7 +157,7 @@ jobs:
 
   build:
     name: Build
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     needs: [test-go, test-e2e-tamper, security]
     steps:
       - uses: actions/checkout@v4
@@ -170,7 +170,7 @@ jobs:
 
   docker:
     name: Docker Build
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     needs: [build]
     steps:
       - uses: actions/checkout@v4
@@ -179,7 +179,7 @@ jobs:
 
   auditor-demo:
     name: Auditor Demo (Integration)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     needs: [build]
     steps:
       - uses: actions/checkout@v4
@@ -190,6 +190,16 @@ jobs:
         env:
           VAOL_DEMO_KEEP_STACK: "0"
         run: ./scripts/demo_auditor.sh
+      - name: Validate verifier transcript artifacts
+        run: |
+          set -euo pipefail
+          RUN_DIR="$(ls -1dt tmp/demo-auditor/* | head -n 1)"
+          ARTIFACT_DIR="${RUN_DIR}/artifacts"
+          test -s "${ARTIFACT_DIR}/verify-transcript.json"
+          test -s "${ARTIFACT_DIR}/verify-report.json"
+          test -s "${ARTIFACT_DIR}/verify-report.md"
+          jq -e '.profile and .summary and (.steps | type == "array")' "${ARTIFACT_DIR}/verify-transcript.json" >/dev/null
+          jq -e '.title and .bundle and (.bundle.results | type == "array")' "${ARTIFACT_DIR}/verify-report.json" >/dev/null
       - name: Upload auditor demo artifacts
         if: always()
         uses: actions/upload-artifact@v4
