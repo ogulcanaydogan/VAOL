@@ -2,8 +2,8 @@ apiVersion: v2
 name: vaol
 description: Verifiable AI Output Ledger — tamper-evident audit trail for AI/LLM outputs
 type: application
-version: 1.0.0
-appVersion: "1.0.0"
+version: 0.2.9
+appVersion: "0.2.9"
 keywords:
   - ai
   - audit
@@ -13,6 +13,6 @@ keywords:
   - llm
 maintainers:
   - name: YaPAY
-home: https://github.com/ogulcanaydogan/vaol
+home: https://github.com/ogulcanaydogan/Verifiable-AI-Output-Ledger
 sources:
-  - https://github.com/ogulcanaydogan/vaol
+  - https://github.com/ogulcanaydogan/Verifiable-AI-Output-Ledger

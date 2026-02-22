@@ -1,6 +1,6 @@
 {
   "name": "@vaol/sdk",
-  "version": "1.0.0",
+  "version": "0.2.9",
   "description": "TypeScript SDK for VAOL — Verifiable AI Output Ledger",
   "type": "module",
   "main": "dist/index.js",

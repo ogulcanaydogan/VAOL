@@ -5,7 +5,18 @@ All notable changes to VAOL will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [1.0.0] - 2026-02-21
+## [0.2.9] - 2026-02-22
+
+### Fixed
+
+- **Release pipeline repo slug** — Updated GoReleaser release target to `ogulcanaydogan/Verifiable-AI-Output-Ledger` to prevent GitHub upload redirect failures.
+- **CI mainline recovery** — Fixed `golangci-lint` unused build metadata vars in `vaol-cli`, excluded generated protobuf code from `gosec`, and aligned Docker builder images with Go 1.24.
+
+### Changed
+
+- **Release-line lock** — Standardized public artifact/version metadata on the `0.2.x` line (`0.2.9`) for Python SDK, TypeScript SDK, Helm chart, and API reference.
+
+## [0.2.8] - 2026-02-21
 
 ### Added
 
@@ -14,10 +25,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- **Version bump to 1.0.0** — All components aligned: Helm chart, Python SDK, TypeScript SDK, and API reference documentation bumped from 0.3.0/0.4.0 to 1.0.0.
+- **Pre-release version milestone** — Components were temporarily aligned to `1.0.0` as a stabilization milestone before release-line normalization in `0.2.9`.
 - **Python SDK classifier** — Upgraded from `Development Status :: 3 - Alpha` to `Development Status :: 5 - Production/Stable`.
 
-## [0.4.0] - 2026-02-21
+## [0.2.7] - 2026-02-21
 
 ### Added
 
@@ -35,18 +46,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **Dead code in `pkg/export/format.go`** — Removed unused `json.Marshal` call and `encoding/json` import; replaced with nil-envelope guard.
 
-## [0.3.1] - 2026-02-20
+## [0.2.6] - 2026-02-20
 
 ### Fixed
 
 - **Version injection** — All three Go binaries (`vaol-server`, `vaol-cli`, `vaol-proxy`) now accept build-time `version`, `commit`, and `date` variables via ldflags, matching `.goreleaser.yml` configuration. The `/v1/health` endpoint and `X-VAOL-Version` header are now dynamic instead of hardcoded.
-- **SDK version sync** — Bumped Python SDK (`pyproject.toml`, `__init__.py`), TypeScript SDK (`package.json`), and API reference docs from 0.2.0 to 0.3.0.
+- **SDK version sync** — Aligned Python SDK (`pyproject.toml`, `__init__.py`), TypeScript SDK (`package.json`), and API reference documentation in one coordinated release step.
 
 ### Added
 
 - **TypeScript wrapper tests** — 13 dedicated tests for `instrumentOpenAI()` in `sdk/typescript/tests/wrapper.test.ts`, matching Python SDK `test_wrapper.py` coverage: client validation, method replacement, response forwarding, record emission, prompt/output hashing, token counts, model/temperature capture, error resilience, finish reason, latency, and onError callback.
 
-## [0.3.0] - 2026-02-20
+## [0.2.5] - 2026-02-20
 
 ### Added
 
@@ -112,9 +123,10 @@ Initial public release of the Verifiable AI Output Ledger.
 - Startup Merkle rebuild with checkpoint/root validation.
 - Tenant-bound API access with cross-tenant rejection.
 
-[1.0.0]: https://github.com/ogulcanaydogan/Verifiable-AI-Output-Ledger/releases/tag/v1.0.0
-[0.4.0]: https://github.com/ogulcanaydogan/Verifiable-AI-Output-Ledger/releases/tag/v0.4.0
-[0.3.1]: https://github.com/ogulcanaydogan/Verifiable-AI-Output-Ledger/releases/tag/v0.3.1
-[0.3.0]: https://github.com/ogulcanaydogan/Verifiable-AI-Output-Ledger/releases/tag/v0.3.0
+[0.2.9]: https://github.com/ogulcanaydogan/Verifiable-AI-Output-Ledger/releases/tag/v0.2.9
+[0.2.8]: https://github.com/ogulcanaydogan/Verifiable-AI-Output-Ledger/releases/tag/v0.2.8
+[0.2.7]: https://github.com/ogulcanaydogan/Verifiable-AI-Output-Ledger/releases/tag/v0.2.7
+[0.2.6]: https://github.com/ogulcanaydogan/Verifiable-AI-Output-Ledger/releases/tag/v0.2.6
+[0.2.5]: https://github.com/ogulcanaydogan/Verifiable-AI-Output-Ledger/releases/tag/v0.2.5
 [0.2.0]: https://github.com/ogulcanaydogan/Verifiable-AI-Output-Ledger/releases/tag/v0.2.0
 [0.1.0]: https://github.com/ogulcanaydogan/Verifiable-AI-Output-Ledger/releases/tag/v0.1.0
