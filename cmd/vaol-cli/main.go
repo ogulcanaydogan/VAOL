@@ -26,7 +26,7 @@ func main() {
 		Use:     "vaol",
 		Short:   "VAOL — Verifiable AI Output Ledger CLI",
 		Long:    "Cryptographically verify, inspect, and export AI inference decision records.",
-		Version: version,
+		Version: fmt.Sprintf("%s (commit %s, built %s)", version, commit, date),
 	}
 
 	root.AddCommand(
