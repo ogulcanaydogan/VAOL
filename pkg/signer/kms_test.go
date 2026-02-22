@@ -2,6 +2,7 @@ package signer
 
 import (
 	"context"
+	"strings"
 	"testing"
 )
 
@@ -102,6 +103,68 @@ func TestKMSVerifier_InvalidSignature(t *testing.T) {
 
 	if err := v.Verify(ctx, []byte("payload"), sig); err == nil {
 		t.Error("should fail with invalid ASN.1 signature")
+	}
+}
+
+func TestKMSVerifier_RejectsMismatchedKeyID(t *testing.T) {
+	backend, err := NewLocalECDSABackend()
+	if err != nil {
+		t.Fatalf("creating backend: %v", err)
+	}
+	cfg := KMSConfig{Provider: KMSProviderLocal, KeyURI: "local://keyid-check"}
+	s := NewKMSSigner(cfg, backend)
+	v := NewKMSVerifier("local-ecdsa:local://different-key", backend)
+
+	ctx := context.Background()
+	sig, err := s.Sign(ctx, []byte("payload"))
+	if err != nil {
+		t.Fatalf("sign: %v", err)
+	}
+	err = v.Verify(ctx, []byte("payload"), sig)
+	if err == nil || !strings.Contains(err.Error(), "keyid mismatch") {
+		t.Fatalf("expected keyid mismatch error, got: %v", err)
+	}
+}
+
+func TestKMSVerifier_RejectsMissingKeyID(t *testing.T) {
+	backend, err := NewLocalECDSABackend()
+	if err != nil {
+		t.Fatalf("creating backend: %v", err)
+	}
+	cfg := KMSConfig{Provider: KMSProviderLocal, KeyURI: "local://missing-keyid"}
+	s := NewKMSSigner(cfg, backend)
+	v := NewKMSVerifier(s.KeyID(), backend)
+
+	ctx := context.Background()
+	sig, err := s.Sign(ctx, []byte("payload"))
+	if err != nil {
+		t.Fatalf("sign: %v", err)
+	}
+	sig.KeyID = ""
+	err = v.Verify(ctx, []byte("payload"), sig)
+	if err == nil || !strings.Contains(err.Error(), "missing keyid") {
+		t.Fatalf("expected missing keyid error, got: %v", err)
+	}
+}
+
+func TestKMSVerifier_RejectsInvalidTimestamp(t *testing.T) {
+	backend, err := NewLocalECDSABackend()
+	if err != nil {
+		t.Fatalf("creating backend: %v", err)
+	}
+	cfg := KMSConfig{Provider: KMSProviderLocal, KeyURI: "local://timestamp-check"}
+	s := NewKMSSigner(cfg, backend)
+	v := NewKMSVerifier(s.KeyID(), backend)
+
+	ctx := context.Background()
+	sig, err := s.Sign(ctx, []byte("payload"))
+	if err != nil {
+		t.Fatalf("sign: %v", err)
+	}
+	sig.Timestamp = "not-rfc3339"
+	err = v.Verify(ctx, []byte("payload"), sig)
+	if err == nil || !strings.Contains(err.Error(), "invalid kms signature timestamp") {
+		t.Fatalf("expected invalid timestamp error, got: %v", err)
 	}
 }
 

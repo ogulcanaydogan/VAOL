@@ -16,6 +16,7 @@ import (
 	"encoding/pem"
 	"fmt"
 	"os"
+	"strings"
 	"time"
 )
 
@@ -100,6 +101,21 @@ func NewKMSVerifier(keyID string, backend KMSBackend) *KMSVerifier {
 }
 
 func (v *KMSVerifier) Verify(ctx context.Context, payload []byte, sig Signature) error {
+	if expectedKeyID := strings.TrimSpace(v.keyID); expectedKeyID != "" {
+		gotKeyID := strings.TrimSpace(sig.KeyID)
+		if gotKeyID == "" {
+			return fmt.Errorf("kms signature missing keyid")
+		}
+		if gotKeyID != expectedKeyID {
+			return fmt.Errorf("kms keyid mismatch: got %q want %q", gotKeyID, expectedKeyID)
+		}
+	}
+	if strings.TrimSpace(sig.Timestamp) != "" {
+		if _, err := time.Parse(time.RFC3339, sig.Timestamp); err != nil {
+			return fmt.Errorf("invalid kms signature timestamp: %w", err)
+		}
+	}
+
 	sigBytes, err := b64Decode(sig.Sig)
 	if err != nil {
 		return fmt.Errorf("decoding signature: %w", err)
