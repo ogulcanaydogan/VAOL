@@ -3,6 +3,7 @@ package verifier
 import (
 	"context"
 	"encoding/json"
+	"strings"
 	"testing"
 
 	"github.com/ogulcanaydogan/vaol/pkg/export"
@@ -245,6 +246,60 @@ func TestVerifyEnvelopeStrictPassesWithCompleteEvidence(t *testing.T) {
 	}
 	if !result.Valid {
 		t.Fatalf("strict profile should pass with complete evidence: %+v", result.Checks)
+	}
+}
+
+func TestVerifyEnvelopeStrictRejectsPartiallyVerifiedMultiSignatureEnvelope(t *testing.T) {
+	s1, _ := signer.GenerateEd25519Signer()
+	s2, _ := signer.GenerateEd25519Signer()
+	rec := makeTestDecisionRecord()
+	enrichStrictEvidence(t, rec)
+	payload, _ := json.Marshal(rec)
+	env, _ := signer.SignEnvelope(context.Background(), payload, s1, s2)
+
+	// Only provide verifier for the first signature.
+	v := New(signer.NewEd25519Verifier(s1.PublicKey()))
+	result, err := v.VerifyEnvelopeWithProfile(context.Background(), env, ProfileStrict)
+	if err != nil {
+		t.Fatalf("VerifyEnvelopeWithProfile error: %v", err)
+	}
+	if result.Valid {
+		t.Fatal("strict profile should fail when any envelope signature is unverifiable")
+	}
+
+	strictFailed := false
+	for _, check := range result.Checks {
+		if check.Name == "profile_strict" && !check.Passed {
+			strictFailed = true
+			if !strings.Contains(check.Error, "requires all signatures to verify") {
+				t.Fatalf("unexpected strict check error: %s", check.Error)
+			}
+		}
+	}
+	if !strictFailed {
+		t.Fatal("expected profile_strict check to fail")
+	}
+}
+
+func TestVerifyEnvelopeStrictAcceptsFullyVerifiedMultiSignatureEnvelope(t *testing.T) {
+	s1, _ := signer.GenerateEd25519Signer()
+	s2, _ := signer.GenerateEd25519Signer()
+	rec := makeTestDecisionRecord()
+	enrichStrictEvidence(t, rec)
+	payload, _ := json.Marshal(rec)
+	env, _ := signer.SignEnvelope(context.Background(), payload, s1, s2)
+
+	// Provide verifiers for both signatures.
+	v := New(
+		signer.NewEd25519Verifier(s1.PublicKey()),
+		signer.NewEd25519Verifier(s2.PublicKey()),
+	)
+	result, err := v.VerifyEnvelopeWithProfile(context.Background(), env, ProfileStrict)
+	if err != nil {
+		t.Fatalf("VerifyEnvelopeWithProfile error: %v", err)
+	}
+	if !result.Valid {
+		t.Fatalf("strict profile should pass when all signatures are verifiable: %+v", result.Checks)
 	}
 }
 
