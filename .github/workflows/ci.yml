@@ -28,7 +28,7 @@ jobs:
           go-version: "1.24.13"
       - uses: golangci/golangci-lint-action@v6
         with:
-          version: 1.64.8
+          version: v1.64.8
 
   lint-python:
     name: Lint (Python)
