@@ -184,6 +184,9 @@ make build
 # Enforce startup anchor continuity verification (production hardening)
 ./bin/vaol-server --anchor-mode local --anchor-continuity-required
 
+# Enforce verifier key revocations for /v1/verify and /v1/verify/bundle
+./bin/vaol-server --verify-revocations-file /etc/vaol/revocations.json
+
 # Async high-scale Merkle/checkpoint worker fed from Kafka append events
 ./bin/vaol-ingest-worker \
   --kafka-brokers kafka-1:9092,kafka-2:9092 \

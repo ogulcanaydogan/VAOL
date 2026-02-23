@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"testing"
 	"time"
 
@@ -145,6 +146,32 @@ func validRecordJSON(t *testing.T) []byte {
 		t.Fatalf("marshaling record: %v", err)
 	}
 	return data
+}
+
+func writeRevocationsFile(t *testing.T, keyID, effectiveAt string) string {
+	t.Helper()
+
+	payload := map[string]any{
+		"version":      "v1",
+		"generated_at": time.Now().UTC().Format(time.RFC3339),
+		"revocations": []map[string]any{
+			{
+				"keyid":        keyID,
+				"effective_at": effectiveAt,
+				"reason":       "compromised",
+			},
+		},
+	}
+	raw, err := json.Marshal(payload)
+	if err != nil {
+		t.Fatalf("marshal revocations: %v", err)
+	}
+
+	path := t.TempDir() + "/revocations.json"
+	if err := os.WriteFile(path, raw, 0600); err != nil {
+		t.Fatalf("write revocations file: %v", err)
+	}
+	return path
 }
 
 func TestAppendRecord(t *testing.T) {
@@ -531,6 +558,73 @@ func TestVerifyRecord(t *testing.T) {
 	}
 }
 
+func TestVerifyRecordRevokedByServerRevocationPolicy(t *testing.T) {
+	ms := store.NewMemoryStore()
+	tree := merkle.New()
+	sig, err := signer.GenerateEd25519Signer()
+	if err != nil {
+		t.Fatalf("generating signer: %v", err)
+	}
+	ver := signer.NewEd25519Verifier(sig.PublicKey())
+
+	cfg := api.DefaultConfig()
+	cfg.RebuildOnStart = false
+	cfg.VerificationRevocationsFile = writeRevocationsFile(t, sig.KeyID(), "2000-01-01T00:00:00Z")
+
+	srv := api.NewServer(cfg, ms, sig, []signer.Verifier{ver}, tree, nil, slog.Default())
+	if err := srv.StartupError(); err != nil {
+		t.Fatalf("unexpected startup error: %v", err)
+	}
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	body := validRecordJSON(t)
+	resp := mustPost(t, ts.URL+"/v1/records", "application/json", body)
+	var receipt record.Receipt
+	decodeJSON(t, resp.Body, &receipt)
+	resp.Body.Close()
+
+	resp2 := mustGet(t, ts.URL+"/v1/records/"+receipt.RequestID.String())
+	var stored store.StoredRecord
+	decodeJSON(t, resp2.Body, &stored)
+	resp2.Body.Close()
+
+	envJSON, _ := json.Marshal(stored.Envelope)
+	resp3 := mustPost(t, ts.URL+"/v1/verify", "application/json", envJSON)
+	defer resp3.Body.Close()
+
+	if resp3.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp3.StatusCode)
+	}
+
+	var result map[string]any
+	decodeJSON(t, resp3.Body, &result)
+	if result["valid"] != false {
+		t.Fatalf("expected valid=false when signer key is revoked, got %v", result["valid"])
+	}
+
+	checks, ok := result["checks"].([]any)
+	if !ok {
+		t.Fatalf("checks has unexpected type %T", result["checks"])
+	}
+	found := false
+	for _, item := range checks {
+		check, ok := item.(map[string]any)
+		if !ok {
+			continue
+		}
+		if check["name"] == "key_revocation" {
+			found = true
+			if check["passed"] != false {
+				t.Fatalf("expected key_revocation check to fail, got %+v", check)
+			}
+		}
+	}
+	if !found {
+		t.Fatal("expected key_revocation check in verification response")
+	}
+}
+
 func TestVerifyRecordWrappedRequestWithProfile(t *testing.T) {
 	ts, _, _ := newTestServer(t)
 	defer ts.Close()
@@ -786,6 +880,63 @@ func TestVerifyBundle(t *testing.T) {
 
 	if verifyResult["summary"] != "VERIFICATION PASSED" {
 		t.Fatalf("expected VERIFICATION PASSED, got %v", verifyResult["summary"])
+	}
+}
+
+func TestVerifyBundleRevokedByServerRevocationPolicy(t *testing.T) {
+	ms := store.NewMemoryStore()
+	tree := merkle.New()
+	sig, err := signer.GenerateEd25519Signer()
+	if err != nil {
+		t.Fatalf("generating signer: %v", err)
+	}
+	ver := signer.NewEd25519Verifier(sig.PublicKey())
+
+	cfg := api.DefaultConfig()
+	cfg.RebuildOnStart = false
+	cfg.VerificationRevocationsFile = writeRevocationsFile(t, sig.KeyID(), "2000-01-01T00:00:00Z")
+
+	srv := api.NewServer(cfg, ms, sig, []signer.Verifier{ver}, tree, nil, slog.Default())
+	if err := srv.StartupError(); err != nil {
+		t.Fatalf("unexpected startup error: %v", err)
+	}
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	body := validRecordJSON(t)
+	r := mustPost(t, ts.URL+"/v1/records", "application/json", body)
+	r.Body.Close()
+
+	exportReq := map[string]any{
+		"tenant_id": "test-tenant",
+		"limit":     10,
+	}
+	exportBody, _ := json.Marshal(exportReq)
+	exportResp := mustPost(t, ts.URL+"/v1/export", "application/json", exportBody)
+	defer exportResp.Body.Close()
+
+	var bundle map[string]any
+	if err := json.NewDecoder(exportResp.Body).Decode(&bundle); err != nil {
+		t.Fatalf("decode export bundle: %v", err)
+	}
+
+	verifyBody, _ := json.Marshal(bundle)
+	verifyResp := mustPost(t, ts.URL+"/v1/verify/bundle", "application/json", verifyBody)
+	defer verifyResp.Body.Close()
+	if verifyResp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", verifyResp.StatusCode)
+	}
+
+	var verifyResult map[string]any
+	if err := json.NewDecoder(verifyResp.Body).Decode(&verifyResult); err != nil {
+		t.Fatalf("decode verify result: %v", err)
+	}
+
+	if verifyResult["summary"] != "VERIFICATION FAILED" {
+		t.Fatalf("expected VERIFICATION FAILED, got %v", verifyResult["summary"])
+	}
+	if verifyResult["signatures_valid"] != false {
+		t.Fatalf("expected signatures_valid=false, got %v", verifyResult["signatures_valid"])
 	}
 }
 

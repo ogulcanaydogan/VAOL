@@ -28,46 +28,47 @@ var (
 
 func main() {
 	var (
-		addr                 = flag.String("addr", ":8080", "server listen address")
-		dsn                  = flag.String("dsn", "", "PostgreSQL connection string")
-		keyPath              = flag.String("key", "", "Ed25519 private key PEM path")
-		signerMode           = flag.String("signer-mode", "ed25519", "signing backend: ed25519, sigstore, kms")
-		sigstoreFulcioURL    = flag.String("sigstore-fulcio-url", "", "Sigstore Fulcio URL")
-		sigstoreRekorURL     = flag.String("sigstore-rekor-url", "", "Sigstore Rekor URL")
-		sigstoreOIDCIssuer   = flag.String("sigstore-oidc-issuer", "", "Sigstore OIDC issuer")
-		sigstoreOIDCClient   = flag.String("sigstore-oidc-client-id", "", "Sigstore OIDC client ID")
-		sigstoreToken        = flag.String("sigstore-identity-token", "", "Sigstore identity token")
-		sigstoreRequireRek   = flag.Bool("sigstore-rekor-required", false, "require Rekor entry creation/verification for Sigstore signatures")
-		kmsProvider          = flag.String("kms-provider", string(signer.KMSProviderLocal), "KMS provider: aws-kms, gcp-kms, azure-keyvault, local-ecdsa")
-		kmsKeyURI            = flag.String("kms-key-uri", "local://vaol-signing", "KMS key URI")
-		kmsAccessToken       = flag.String("kms-access-token", "", "OAuth access token for GCP/Azure KMS REST backends")
-		kmsEndpoint          = flag.String("kms-endpoint", "", "optional KMS endpoint override")
-		opaURL               = flag.String("opa-url", "", "OPA endpoint URL (e.g., http://localhost:8181)")
-		opaPolicy            = flag.String("opa-policy", "v1/data/vaol/decision", "OPA policy path")
-		policyMode           = flag.String("policy-mode", "fail-closed", "policy mode: fail-closed or allow-all")
-		authMode             = flag.String("auth-mode", "required", "auth mode: disabled, optional, required")
-		jwtIssuer            = flag.String("jwt-issuer", "", "expected JWT issuer")
-		jwtAudience          = flag.String("jwt-audience", "", "expected JWT audience")
-		jwtTenantClaim       = flag.String("jwt-tenant-claim", "tenant_id", "JWT claim name containing tenant ID")
-		jwtSubjectClaim      = flag.String("jwt-subject-claim", "sub", "JWT claim name containing subject ID")
-		jwksFile             = flag.String("jwks-file", "", "path to JWKS file for JWT verification")
-		jwksURL              = flag.String("jwks-url", "", "JWKS URL for JWT verification")
-		jwtHS256Secret       = flag.String("jwt-hs256-secret", "", "shared secret for HS256 JWT verification (dev/test)")
-		jwtClockSkew         = flag.Duration("jwt-clock-skew", 30*time.Second, "allowed JWT clock skew")
-		webDir               = flag.String("web-dir", "", "path to auditor web UI directory (serves at /ui/)")
-		checkpointEvery      = flag.Int64("checkpoint-every", 100, "persist a signed checkpoint every N records")
-		checkpointInterval   = flag.Duration("checkpoint-interval", 5*time.Minute, "persist a signed checkpoint at least every duration")
-		anchorMode           = flag.String("anchor-mode", "local", "checkpoint anchoring mode: off, local, http")
-		anchorURL            = flag.String("anchor-url", "", "checkpoint anchoring endpoint URL (required when anchor-mode=http)")
-		anchorContinuityReq  = flag.Bool("anchor-continuity-required", false, "fail startup if latest checkpoint anchor continuity cannot be verified")
-		rebuildOnStart       = flag.Bool("rebuild-on-start", true, "rebuild Merkle tree from persisted records on startup")
-		failOnStartupCheck   = flag.Bool("fail-on-startup-check", true, "fail startup when integrity rebuild/checkpoint validation fails")
-		ingestMode           = flag.String("ingest-mode", "off", "ingest event publishing mode: off, kafka")
-		ingestKafkaBrokers   = flag.String("ingest-kafka-brokers", "", "comma-separated Kafka brokers for ingest mode kafka")
-		ingestKafkaTopic     = flag.String("ingest-kafka-topic", "vaol.decision-records", "Kafka topic for decision-record append events")
-		ingestKafkaClient    = flag.String("ingest-kafka-client-id", "vaol-server", "Kafka client ID for ingest publisher")
-		ingestKafkaRequired  = flag.Bool("ingest-kafka-required", false, "fail startup if ingest publisher initialization fails")
-		ingestPublishTimeout = flag.Duration("ingest-publish-timeout", 2*time.Second, "timeout per ingest event publish")
+		addr                  = flag.String("addr", ":8080", "server listen address")
+		dsn                   = flag.String("dsn", "", "PostgreSQL connection string")
+		keyPath               = flag.String("key", "", "Ed25519 private key PEM path")
+		signerMode            = flag.String("signer-mode", "ed25519", "signing backend: ed25519, sigstore, kms")
+		sigstoreFulcioURL     = flag.String("sigstore-fulcio-url", "", "Sigstore Fulcio URL")
+		sigstoreRekorURL      = flag.String("sigstore-rekor-url", "", "Sigstore Rekor URL")
+		sigstoreOIDCIssuer    = flag.String("sigstore-oidc-issuer", "", "Sigstore OIDC issuer")
+		sigstoreOIDCClient    = flag.String("sigstore-oidc-client-id", "", "Sigstore OIDC client ID")
+		sigstoreToken         = flag.String("sigstore-identity-token", "", "Sigstore identity token")
+		sigstoreRequireRek    = flag.Bool("sigstore-rekor-required", false, "require Rekor entry creation/verification for Sigstore signatures")
+		kmsProvider           = flag.String("kms-provider", string(signer.KMSProviderLocal), "KMS provider: aws-kms, gcp-kms, azure-keyvault, local-ecdsa")
+		kmsKeyURI             = flag.String("kms-key-uri", "local://vaol-signing", "KMS key URI")
+		kmsAccessToken        = flag.String("kms-access-token", "", "OAuth access token for GCP/Azure KMS REST backends")
+		kmsEndpoint           = flag.String("kms-endpoint", "", "optional KMS endpoint override")
+		opaURL                = flag.String("opa-url", "", "OPA endpoint URL (e.g., http://localhost:8181)")
+		opaPolicy             = flag.String("opa-policy", "v1/data/vaol/decision", "OPA policy path")
+		policyMode            = flag.String("policy-mode", "fail-closed", "policy mode: fail-closed or allow-all")
+		authMode              = flag.String("auth-mode", "required", "auth mode: disabled, optional, required")
+		jwtIssuer             = flag.String("jwt-issuer", "", "expected JWT issuer")
+		jwtAudience           = flag.String("jwt-audience", "", "expected JWT audience")
+		jwtTenantClaim        = flag.String("jwt-tenant-claim", "tenant_id", "JWT claim name containing tenant ID")
+		jwtSubjectClaim       = flag.String("jwt-subject-claim", "sub", "JWT claim name containing subject ID")
+		jwksFile              = flag.String("jwks-file", "", "path to JWKS file for JWT verification")
+		jwksURL               = flag.String("jwks-url", "", "JWKS URL for JWT verification")
+		jwtHS256Secret        = flag.String("jwt-hs256-secret", "", "shared secret for HS256 JWT verification (dev/test)")
+		jwtClockSkew          = flag.Duration("jwt-clock-skew", 30*time.Second, "allowed JWT clock skew")
+		webDir                = flag.String("web-dir", "", "path to auditor web UI directory (serves at /ui/)")
+		verifyRevocationsFile = flag.String("verify-revocations-file", "", "path to verifier key revocation list JSON")
+		checkpointEvery       = flag.Int64("checkpoint-every", 100, "persist a signed checkpoint every N records")
+		checkpointInterval    = flag.Duration("checkpoint-interval", 5*time.Minute, "persist a signed checkpoint at least every duration")
+		anchorMode            = flag.String("anchor-mode", "local", "checkpoint anchoring mode: off, local, http")
+		anchorURL             = flag.String("anchor-url", "", "checkpoint anchoring endpoint URL (required when anchor-mode=http)")
+		anchorContinuityReq   = flag.Bool("anchor-continuity-required", false, "fail startup if latest checkpoint anchor continuity cannot be verified")
+		rebuildOnStart        = flag.Bool("rebuild-on-start", true, "rebuild Merkle tree from persisted records on startup")
+		failOnStartupCheck    = flag.Bool("fail-on-startup-check", true, "fail startup when integrity rebuild/checkpoint validation fails")
+		ingestMode            = flag.String("ingest-mode", "off", "ingest event publishing mode: off, kafka")
+		ingestKafkaBrokers    = flag.String("ingest-kafka-brokers", "", "comma-separated Kafka brokers for ingest mode kafka")
+		ingestKafkaTopic      = flag.String("ingest-kafka-topic", "vaol.decision-records", "Kafka topic for decision-record append events")
+		ingestKafkaClient     = flag.String("ingest-kafka-client-id", "vaol-server", "Kafka client ID for ingest publisher")
+		ingestKafkaRequired   = flag.Bool("ingest-kafka-required", false, "fail startup if ingest publisher initialization fails")
+		ingestPublishTimeout  = flag.Duration("ingest-publish-timeout", 2*time.Second, "timeout per ingest event publish")
 	)
 	flag.Parse()
 
@@ -160,31 +161,32 @@ func main() {
 
 	// Server
 	cfg := api.Config{
-		Version:                  version,
-		Addr:                     *addr,
-		WebDir:                   *webDir,
-		CheckpointEvery:          *checkpointEvery,
-		CheckpointInterval:       *checkpointInterval,
-		AnchorMode:               *anchorMode,
-		AnchorURL:                *anchorURL,
-		AnchorContinuityRequired: *anchorContinuityReq,
-		AuthMode:                 *authMode,
-		JWTIssuer:                *jwtIssuer,
-		JWTAudience:              *jwtAudience,
-		JWTTenantClaim:           *jwtTenantClaim,
-		JWTSubjectClaim:          *jwtSubjectClaim,
-		JWKSFile:                 *jwksFile,
-		JWKSURL:                  *jwksURL,
-		JWTHS256Secret:           *jwtHS256Secret,
-		JWTClockSkew:             *jwtClockSkew,
-		RebuildOnStart:           *rebuildOnStart,
-		FailOnStartupCheck:       *failOnStartupCheck,
-		IngestMode:               *ingestMode,
-		IngestKafkaBrokers:       parseCommaSeparatedNonEmpty(*ingestKafkaBrokers),
-		IngestKafkaTopic:         *ingestKafkaTopic,
-		IngestKafkaClient:        *ingestKafkaClient,
-		IngestKafkaRequired:      *ingestKafkaRequired,
-		IngestPublishTimeout:     *ingestPublishTimeout,
+		Version:                     version,
+		Addr:                        *addr,
+		WebDir:                      *webDir,
+		VerificationRevocationsFile: *verifyRevocationsFile,
+		CheckpointEvery:             *checkpointEvery,
+		CheckpointInterval:          *checkpointInterval,
+		AnchorMode:                  *anchorMode,
+		AnchorURL:                   *anchorURL,
+		AnchorContinuityRequired:    *anchorContinuityReq,
+		AuthMode:                    *authMode,
+		JWTIssuer:                   *jwtIssuer,
+		JWTAudience:                 *jwtAudience,
+		JWTTenantClaim:              *jwtTenantClaim,
+		JWTSubjectClaim:             *jwtSubjectClaim,
+		JWKSFile:                    *jwksFile,
+		JWKSURL:                     *jwksURL,
+		JWTHS256Secret:              *jwtHS256Secret,
+		JWTClockSkew:                *jwtClockSkew,
+		RebuildOnStart:              *rebuildOnStart,
+		FailOnStartupCheck:          *failOnStartupCheck,
+		IngestMode:                  *ingestMode,
+		IngestKafkaBrokers:          parseCommaSeparatedNonEmpty(*ingestKafkaBrokers),
+		IngestKafkaTopic:            *ingestKafkaTopic,
+		IngestKafkaClient:           *ingestKafkaClient,
+		IngestKafkaRequired:         *ingestKafkaRequired,
+		IngestPublishTimeout:        *ingestPublishTimeout,
 	}
 
 	srv := api.NewServer(cfg, st, sig, verifiers, tree, pol, logger)
