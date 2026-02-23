@@ -1,0 +1,68 @@
+/* VAOL Auditor — Base Styles */
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  font-family: var(--font);
+  background: var(--bg);
+  color: var(--text);
+  min-height: 100vh;
+  font-size: var(--font-size-base);
+}
+
+/* Layout */
+.app-header {
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  padding: 0.75rem var(--spacing-xl);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.app-header h1 { font-size: var(--font-size-xl); font-weight: 600; }
+.app-header h1 span { color: var(--blue); }
+
+/* Navigation */
+nav {
+  display: flex;
+  gap: 0;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  padding: 0 var(--spacing-xl);
+  overflow-x: auto;
+}
+
+nav a {
+  padding: 0.75rem 1.25rem;
+  color: var(--text-muted);
+  text-decoration: none;
+  border-bottom: 2px solid transparent;
+  transition: all var(--transition-fast);
+  font-size: var(--font-size-sm);
+  white-space: nowrap;
+}
+
+nav a:hover { color: var(--text); }
+nav a.active { color: var(--blue); border-bottom-color: var(--blue); }
+
+/* Main content */
+main {
+  padding: var(--spacing-xl);
+  max-width: 1400px;
+  margin: 0 auto;
+}
+
+/* Scrollbar */
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-track { background: var(--bg); }
+::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
+::-webkit-scrollbar-thumb:hover { background: var(--text-muted); }
+
+/* Utility */
+.hidden { display: none !important; }
+
+@media (max-width: 768px) {
+  .app-header { flex-direction: column; gap: var(--spacing-sm); }
+  nav { padding: 0 var(--spacing-md); }
+  main { padding: var(--spacing-md); }
+}

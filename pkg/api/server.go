@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io/fs"
 	"log/slog"
 	"net/http"
 	"strings"
@@ -50,6 +51,7 @@ type Config struct {
 	IngestKafkaClient           string        `json:"ingest_kafka_client"`
 	IngestKafkaRequired         bool          `json:"ingest_kafka_required"`
 	IngestPublishTimeout        time.Duration `json:"ingest_publish_timeout"`
+	EmbeddedWebFS               fs.FS         `json:"-"` // Embedded web UI filesystem (fallback when WebDir is empty)
 }
 
 // DefaultConfig returns sensible defaults for the server.
@@ -124,13 +126,10 @@ func NewServer(
 	}
 
 	if revocationPath := strings.TrimSpace(cfg.VerificationRevocationsFile); revocationPath != "" {
-		rules, err := verifier.LoadRevocationListFile(revocationPath)
-		if err != nil {
-			s.startupErr = errors.Join(s.startupErr, fmt.Errorf("loading verification revocations: %w", err))
-		} else if err := s.verifier.SetRevocations(rules); err != nil {
+		if err := s.verifier.SetRevocationsFromFile(revocationPath); err != nil {
 			s.startupErr = errors.Join(s.startupErr, fmt.Errorf("applying verification revocations: %w", err))
 		} else {
-			s.logger.Info("loaded verification revocations", "path", revocationPath, "rules", len(rules))
+			s.logger.Info("loaded verification revocations", "path", revocationPath)
 		}
 	}
 
@@ -209,9 +208,12 @@ func (s *Server) registerRoutes(mux *http.ServeMux) {
 
 	// Serve auditor web UI if configured
 	if s.config.WebDir != "" {
-		fs := http.FileServer(http.Dir(s.config.WebDir))
-		mux.Handle("/ui/", http.StripPrefix("/ui/", fs))
+		webFS := http.FileServer(http.Dir(s.config.WebDir))
+		mux.Handle("/ui/", http.StripPrefix("/ui/", webFS))
 		s.logger.Info("serving auditor web UI", "path", "/ui/", "dir", s.config.WebDir)
+	} else if s.config.EmbeddedWebFS != nil {
+		mux.Handle("/ui/", http.StripPrefix("/ui/", http.FileServer(http.FS(s.config.EmbeddedWebFS))))
+		s.logger.Info("serving embedded auditor web UI", "path", "/ui/")
 	}
 }
 

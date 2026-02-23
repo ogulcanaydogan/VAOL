@@ -5,6 +5,7 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"io/fs"
 	"log/slog"
 	"os"
 	"os/signal"
@@ -17,6 +18,7 @@ import (
 	"github.com/ogulcanaydogan/vaol/pkg/policy"
 	"github.com/ogulcanaydogan/vaol/pkg/signer"
 	"github.com/ogulcanaydogan/vaol/pkg/store"
+	"github.com/ogulcanaydogan/vaol/web"
 )
 
 // Build-time variables injected via ldflags.
@@ -71,6 +73,7 @@ func main() {
 		ingestPublishTimeout  = flag.Duration("ingest-publish-timeout", 2*time.Second, "timeout per ingest event publish")
 	)
 	flag.Parse()
+	*verifyRevocationsFile = resolveVerifyRevocationsFile(*verifyRevocationsFile)
 
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo}))
 
@@ -160,10 +163,16 @@ func main() {
 	}
 
 	// Server
+	var embeddedWebFS fs.FS
+	if *webDir == "" {
+		embeddedWebFS = web.AuditorFS()
+	}
+
 	cfg := api.Config{
 		Version:                     version,
 		Addr:                        *addr,
 		WebDir:                      *webDir,
+		EmbeddedWebFS:               embeddedWebFS,
 		VerificationRevocationsFile: *verifyRevocationsFile,
 		CheckpointEvery:             *checkpointEvery,
 		CheckpointInterval:          *checkpointInterval,
@@ -278,4 +287,11 @@ func parseCommaSeparatedNonEmpty(raw string) []string {
 		out = append(out, value)
 	}
 	return out
+}
+
+func resolveVerifyRevocationsFile(flagValue string) string {
+	if value := strings.TrimSpace(flagValue); value != "" {
+		return value
+	}
+	return strings.TrimSpace(os.Getenv("VAOL_VERIFY_REVOCATIONS_FILE"))
 }
