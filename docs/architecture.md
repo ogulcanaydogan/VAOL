@@ -571,6 +571,7 @@ helm install vaol deploy/helm/vaol \
 | `--key` | (empty -- ephemeral) | Ed25519 private key PEM path |
 | `--opa-url` | (empty -- noop engine) | OPA endpoint URL |
 | `--opa-policy` | `v1/data/vaol/decision` | OPA policy path |
+| `--verify-revocations-file` | (empty) | Verifier key revocation list JSON for `/v1/verify*` routes |
 | `--web-dir` | (empty) | Path to auditor web UI static files (served at `/ui/`) |
 
 ---

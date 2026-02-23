@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http/httptest"
+	"os"
 	"sort"
 	"strings"
 	"testing"
@@ -294,6 +295,32 @@ func TestServerStartupRejectsAnchorContinuityMismatch(t *testing.T) {
 		t.Fatal("expected startup error for anchor continuity mismatch, got nil")
 	}
 	if !strings.Contains(srv.StartupError().Error(), "anchor continuity") {
+		t.Fatalf("unexpected startup error: %v", srv.StartupError())
+	}
+}
+
+func TestServerStartupRejectsInvalidVerificationRevocationsFile(t *testing.T) {
+	sig, err := signer.GenerateEd25519Signer()
+	if err != nil {
+		t.Fatalf("GenerateEd25519Signer: %v", err)
+	}
+	ver := signer.NewEd25519Verifier(sig.PublicKey())
+
+	tmpDir := t.TempDir()
+	revocationsPath := tmpDir + "/revocations.json"
+	if err := os.WriteFile(revocationsPath, []byte("{not-json"), 0600); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+
+	cfg := api.DefaultConfig()
+	cfg.RebuildOnStart = false
+	cfg.VerificationRevocationsFile = revocationsPath
+
+	srv := api.NewServer(cfg, newStartupSequenceStore(nil, nil), sig, []signer.Verifier{ver}, merkle.New(), nil, slog.Default())
+	if srv.StartupError() == nil {
+		t.Fatal("expected startup error for invalid verification revocations file, got nil")
+	}
+	if !strings.Contains(srv.StartupError().Error(), "loading verification revocations") {
 		t.Fatalf("unexpected startup error: %v", srv.StartupError())
 	}
 }
