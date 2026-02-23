@@ -1,6 +1,6 @@
 # VAOL REST API Reference
 
-**Version:** 0.2.22
+**Version:** 0.2.23
 **Base URL:** `http://<host>:8080`
 **Content-Type:** `application/json`
 
@@ -47,7 +47,21 @@ Enable it by starting the server with:
 ./bin/vaol-server --grpc-addr :9090
 ```
 
-Tenant context for gRPC requests is provided via metadata key `x-vaol-tenant-id`.
+gRPC metadata contract:
+
+- `authorization: Bearer <JWT>` for authenticated calls (required when `--auth-mode=required`)
+- `x-vaol-tenant-id` preferred tenant context key
+- `x-tenant-id` legacy tenant key (supported only when equal to `x-vaol-tenant-id`)
+
+Tenant precedence and enforcement:
+
+1. If JWT has `tenant_id` claim, that tenant is authoritative.
+2. If both claim tenant and metadata tenant are present, they must match.
+3. If claim tenant is absent, metadata tenant is required for tenant-scoped RPCs.
+4. `ListRecords` and `ExportBundle` force empty tenant filters to caller tenant.
+5. Cross-tenant access attempts return deterministic `PermissionDenied` (`tenant mismatch`).
+
+`Health` is intentionally unauthenticated. All other RPCs run auth verification according to configured auth mode.
 
 Available RPCs:
 
@@ -62,6 +76,14 @@ Available RPCs:
 - `VerifyRecord`
 - `ExportBundle` (server stream)
 
+Common gRPC status mapping:
+
+| Status | Meaning |
+|---|---|
+| `Unauthenticated` | Missing/invalid bearer token when auth is required, or invalid token in optional mode |
+| `PermissionDenied` | Tenant mismatch, subject mismatch, or missing tenant context for tenant-scoped operations |
+| `NotFound` | Record/proof/checkpoint target does not exist |
+
 ---
 
 ## Authentication
@@ -74,7 +96,7 @@ VAOL supports three server-side auth modes:
 
 JWT verification supports `HS256`, `RS256`, and `ES256`, with keys from `--jwks-file`, `--jwks-url`, or `--jwt-hs256-secret`.
 
-When JWT validation succeeds, the server injects trusted identity context (`X-VAOL-Tenant-ID`, `X-Auth-Issuer`, `X-Auth-Subject`, `X-Auth-Token-Hash`) and strips the original `Authorization` header before handler processing.
+When JWT validation succeeds on REST, the server injects trusted identity context (`X-VAOL-Tenant-ID`, `X-Auth-Issuer`, `X-Auth-Subject`, `X-Auth-Token-Hash`) and strips the original `Authorization` header before handler processing. On gRPC, equivalent trusted claim binding is applied directly in handler logic.
 
 `/v1/health` and `/ui/*` bypass authentication.
 
@@ -94,7 +116,7 @@ Every response includes the following headers:
 | Header | Description | Example |
 |--------|-------------|---------|
 | `X-Request-ID` | Unique identifier for the request. Echoes the client-supplied `X-Request-ID` header if present; otherwise auto-generated. | `vaol-1708300000000000000` |
-| `X-VAOL-Version` | Server version string. | `0.2.22` |
+| `X-VAOL-Version` | Server version string. | `0.2.23` |
 | `X-VAOL-Record-ID` | The `request_id` (UUID) of the appended record. Present only on `POST /v1/records` responses. | `a1b2c3d4-e5f6-7890-abcd-ef1234567890` |
 | `X-VAOL-Sequence` | The assigned sequence number in the ledger. Present only on `POST /v1/records` responses. | `42` |
 | `Content-Type` | Always `application/json`. | `application/json` |
@@ -773,7 +795,7 @@ GET /v1/health
 ```json
 {
   "status": "ok",
-  "version": "0.2.22",
+  "version": "0.2.23",
   "record_count": 1024,
   "tree_size": 1024
 }

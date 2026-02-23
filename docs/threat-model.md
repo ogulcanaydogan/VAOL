@@ -1,8 +1,8 @@
 # VAOL Threat Model
 
 **Document version:** 1.0
-**Applies to:** Verifiable AI Output Ledger (VAOL) v0.1.x
-**Last updated:** 2026-02-19
+**Applies to:** Verifiable AI Output Ledger (VAOL) v0.2.x
+**Last updated:** 2026-02-23
 
 ---
 
@@ -46,7 +46,8 @@ The system is decomposed into four trust zones. All data crossing a boundary is 
 +----------v-----------------------------v----------+
 |                  VAOL Server                       |
 |                                                    |
-|  - REST API (handlers.go)                          |
+|  - REST API (pkg/api)                              |
+|  - gRPC API (pkg/grpc)                             |
 |  - DSSE Signing (signer package)                   |
 |  - Policy Evaluation (policy package)              |
 |  - Merkle Tree (merkle package)                    |
@@ -100,6 +101,8 @@ The system is decomposed into four trust zones. All data crossing a boundary is 
 |---|--------|-------------|--------|-------------|---------------|
 | A7 | **Policy bypass** | An attacker crafts a request that circumvents OPA policy evaluation, allowing a record to be logged without proper policy adjudication. | Records are created without policy governance; sensitive outputs may be logged without required transforms (e.g., PII redaction). | (1) The `FailClosedEngine` wrapper ensures that if the OPA engine is unreachable or returns an error, the policy decision defaults to `deny`. (2) Schema validation requires `policy_context.policy_decision` to be one of the allowed enum values (`allow`, `deny`, `allow_with_transform`, `log_only`); arbitrary values are rejected. (3) Policy evaluation occurs server-side before record hashing and signing; the client cannot skip it. (4) The `policy_hash` and `policy_bundle_id` are sealed into the record, providing an auditable link to the exact policy that was evaluated. | If OPA is compromised or the policy bundle is replaced with a permissive policy, bypass is possible. Policy bundle integrity should be verified via its hash. |
 | A8 | **Tenant impersonation** | An attacker submits records with a `tenant_id` or `subject` that belongs to a different tenant. | Cross-tenant pollution of audit data. False attribution of AI decisions. | (1) Authentication at the API boundary must bind the caller identity to the `tenant_id` claim. (2) The `identity.claims` field can carry verified OIDC/JWT claims from the authentication layer. (3) Server-side enforcement rejects tenant/subject mismatches on append when auth headers are present. (4) Tenant-scoped read/export endpoints require tenant context headers and reject cross-tenant access. | A compromised gateway can still forge tenant headers. Deployments should enforce signed identity tokens or mTLS-bound identity at the edge. |
+| A15 | **gRPC metadata spoofing** | A caller sends mismatched tenant metadata (`x-vaol-tenant-id` vs `x-tenant-id`) or attempts to override claim tenant with forged metadata. | Cross-tenant data exposure or polluted tenant attribution if accepted. | (1) gRPC auth verifies `authorization: Bearer <JWT>` with the same verifier as REST. (2) gRPC rejects conflicting tenant metadata and claim/header mismatches with deterministic `PermissionDenied` (`tenant mismatch`). (3) `AppendRecord` rejects tenant and subject mismatches against trusted claims and writes trusted auth context into the sealed record payload. | If auth mode is `disabled`, tenant isolation depends on explicit tenant metadata and caller discipline. Production should use `required` auth mode. |
+| A16 | **gRPC cross-tenant read/query/export** | A caller authenticates as tenant A but requests tenant B records via `GetRecord`, `ListRecords`, `GetProofByID`, `ExportBundle`, or related proof APIs. | Unauthorized cross-tenant evidence disclosure. | (1) Tenant-scoped RPCs force or validate effective tenant against authenticated claims. (2) Empty tenant filters are resolved to caller tenant; explicit mismatches are denied. (3) Proof lookups dereference underlying record tenant before returning data. | Misconfigured auth claims (wrong tenant claim mapping) can still cause denial/overexposure. Validate claim mapping in deployment tests. |
 
 ### 4.4 Cryptographic and Key Management Attacks
 
@@ -163,7 +166,7 @@ This ensures that logically identical records always produce the same hash, rega
 
 ## 6. Assumptions and Limitations
 
-1. **Authentication is external with in-service tenant enforcement.** VAOL does not validate tokens itself, but it enforces tenant-context checks in read/export endpoints and tenant/subject mismatch checks during append. Tenant identity still depends on trusted upstream auth infrastructure (API gateway, service mesh, OIDC middleware). A compromised authentication layer undermines tenant isolation guarantees.
+1. **Authentication is validated in-service, and still depends on trusted identity infrastructure.** VAOL verifies JWTs in both REST and gRPC entrypoints when auth mode is `optional` or `required`, then enforces tenant/subject binding using verified claims. Tenant identity still depends on correct IdP/JWKS configuration; compromised identity infrastructure undermines isolation guarantees.
 
 2. **Sigstore availability.** Keyless signing depends on the availability of Fulcio (certificate authority) and Rekor (transparency log). If these services are unavailable, signing falls back to local key material if configured. Production deployments should plan for Sigstore outages.
 

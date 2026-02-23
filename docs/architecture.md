@@ -14,12 +14,13 @@ VAOL never stores raw prompts or outputs by default. Prompt and output content i
 
 ### vaol-server (Go)
 
-The core ledger server. It exposes a REST API (with a gRPC service definition reserved for future use) and orchestrates the full record lifecycle: schema validation, policy evaluation, hash computation, DSSE signing, Merkle tree insertion, and persistent storage.
+The core ledger server. It exposes both REST and gRPC APIs and orchestrates the full record lifecycle: schema validation, policy evaluation, hash computation, DSSE signing, Merkle tree insertion, and persistent storage.
 
 | Package | Responsibility |
 |---------|---------------|
 | `cmd/vaol-server` | CLI entrypoint; wires together store, signer, Merkle tree, policy engine, and HTTP server |
 | `pkg/api` | HTTP server, routing (`http.ServeMux`), middleware (request ID, CORS, auth, logging), startup rebuild checks, and all REST handlers |
+| `pkg/grpc` | gRPC server (`VAOLLedger`) with auth verification, tenant metadata enforcement, streaming list/export, and parity checks for cross-tenant access |
 | `pkg/record` | `DecisionRecord` v1 type definitions, JSON Schema validation, JCS canonicalization, and hash computation |
 | `pkg/signer` | DSSE envelope creation and verification; `Signer` / `Verifier` interfaces with Ed25519, Sigstore, and KMS backends |
 | `pkg/merkle` | RFC 6962 append-only Merkle tree -- inclusion proofs, consistency proofs, and root computation |
@@ -46,6 +47,25 @@ The core ledger server. It exposes a REST API (with a gRPC service definition re
 | `GET` | `/v1/ledger/consistency` | Get consistency proof between two tree sizes |
 | `POST` | `/v1/export` | Export records as a portable audit bundle |
 | `GET` | `/v1/health` | Server health check |
+
+**gRPC Service Endpoints (`VAOLLedger`):**
+
+- `Health` (unauthenticated)
+- `AppendRecord`
+- `GetRecord`
+- `ListRecords` (server-streaming)
+- `GetInclusionProof`
+- `GetProofByID`
+- `GetConsistencyProof`
+- `GetCheckpoint`
+- `VerifyRecord`
+- `ExportBundle` (server-streaming)
+
+Tenant-scoped gRPC calls enforce JWT + tenant semantics equivalent to REST. Metadata keys are:
+
+- `authorization: Bearer <JWT>`
+- `x-vaol-tenant-id` (preferred explicit tenant context)
+- `x-tenant-id` (legacy compatibility; rejected if it conflicts with `x-vaol-tenant-id`)
 
 ### vaol-cli (Go)
 
@@ -589,6 +609,13 @@ helm install vaol deploy/helm/vaol \
 
 ---
 
-## Protocol Buffers (Future gRPC)
+## Protocol Buffers and gRPC (Implemented)
 
-A gRPC service definition exists at `proto/vaol/v1/ledger.proto` defining the `VAOLLedger` service with streaming support for `ListRecords` and `ExportBundle`. This is reserved for future high-throughput use cases. The current implementation uses the REST API exclusively.
+VAOL ships an implemented gRPC service definition at `proto/vaol/v1/ledger.proto` (`VAOLLedger`), including streaming support for `ListRecords` and `ExportBundle`.
+
+Current runtime behavior:
+
+- `Health` is intentionally unauthenticated (parity with REST `/v1/health`).
+- All other RPCs execute JWT verification based on configured auth mode (`disabled|optional|required`).
+- Tenant-scoped RPCs enforce claim/header parity and reject cross-tenant access with deterministic `PermissionDenied` (`tenant mismatch` or `missing tenant context`).
+- `AppendRecord` binds trusted auth evidence into `auth_context` and rejects subject/tenant mismatches against authenticated claims.
