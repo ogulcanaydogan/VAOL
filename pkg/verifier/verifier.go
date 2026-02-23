@@ -62,11 +62,15 @@ const (
 // Verifier performs composite verification of decision records.
 type Verifier struct {
 	sigVerifiers []signer.Verifier
+	revocations  map[string][]revocationWindow
 }
 
 // New creates a new Verifier with the given signature verifiers.
 func New(verifiers ...signer.Verifier) *Verifier {
-	return &Verifier{sigVerifiers: verifiers}
+	return &Verifier{
+		sigVerifiers: verifiers,
+		revocations:  map[string][]revocationWindow{},
+	}
 }
 
 // VerifyEnvelope verifies a single DSSE envelope containing a DecisionRecord.
@@ -109,6 +113,21 @@ func (v *Verifier) VerifyEnvelopeWithProfile(ctx context.Context, env *signer.En
 		sigCheck.Details = fmt.Sprintf("%d signature(s) verified", len(env.Signatures))
 	}
 	result.Checks = append(result.Checks, sigCheck)
+
+	revocationCheck := CheckResult{Name: "key_revocation"}
+	if err := v.verifyRevocations(env, result.Timestamp); err != nil {
+		revocationCheck.Passed = false
+		revocationCheck.Error = err.Error()
+		result.Valid = false
+	} else {
+		revocationCheck.Passed = true
+		if len(v.revocations) == 0 {
+			revocationCheck.Details = "no revocations configured"
+		} else {
+			revocationCheck.Details = "no revoked keyids detected"
+		}
+	}
+	result.Checks = append(result.Checks, revocationCheck)
 
 	// 2. Extract and validate payload
 	payload, err := signer.ExtractPayload(env)
@@ -548,6 +567,8 @@ func (v *Verifier) VerifyBundle(ctx context.Context, bundle *export.Bundle, prof
 				}
 				switch check.Name {
 				case "signature":
+					out.SignaturesValid = false
+				case "key_revocation":
 					out.SignaturesValid = false
 				case "schema":
 					out.SchemaValid = false

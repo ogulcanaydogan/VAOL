@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/ogulcanaydogan/vaol/pkg/export"
 	"github.com/ogulcanaydogan/vaol/pkg/merkle"
@@ -318,6 +319,117 @@ func TestVerifyEnvelopeStrictRejectsInvalidSignatureTimestamp(t *testing.T) {
 	}
 	if result.Valid {
 		t.Fatal("strict profile should reject invalid signature timestamp")
+	}
+}
+
+func TestVerifyEnvelopeRejectsRevokedKeyAtSignatureTime(t *testing.T) {
+	s, _ := signer.GenerateEd25519Signer()
+	rec := makeTestDecisionRecord()
+	hash, _ := record.ComputeRecordHash(rec)
+	rec.Integrity.RecordHash = hash
+	payload, _ := json.Marshal(rec)
+	env, _ := signer.SignEnvelope(context.Background(), payload, s)
+	env.Signatures[0].Timestamp = "2026-02-01T10:00:00Z"
+
+	v := New(signer.NewEd25519Verifier(s.PublicKey()))
+	if err := v.SetRevocations([]RevocationRule{
+		{
+			KeyID:       env.Signatures[0].KeyID,
+			EffectiveAt: time.Date(2026, time.January, 1, 0, 0, 0, 0, time.UTC),
+			Reason:      "compromised",
+		},
+	}); err != nil {
+		t.Fatalf("SetRevocations error: %v", err)
+	}
+
+	result, err := v.VerifyEnvelope(context.Background(), env)
+	if err != nil {
+		t.Fatalf("VerifyEnvelope error: %v", err)
+	}
+	if result.Valid {
+		t.Fatal("verification should fail for revoked key")
+	}
+
+	revocationFailed := false
+	for _, check := range result.Checks {
+		if check.Name == "key_revocation" && !check.Passed {
+			revocationFailed = true
+			if !strings.Contains(check.Error, "signature key revoked") {
+				t.Fatalf("unexpected key_revocation error: %s", check.Error)
+			}
+		}
+	}
+	if !revocationFailed {
+		t.Fatal("expected key_revocation check to fail")
+	}
+}
+
+func TestVerifyEnvelopeAllowsKeyBeforeRevocationEffectiveTime(t *testing.T) {
+	s, _ := signer.GenerateEd25519Signer()
+	rec := makeTestDecisionRecord()
+	hash, _ := record.ComputeRecordHash(rec)
+	rec.Integrity.RecordHash = hash
+	payload, _ := json.Marshal(rec)
+	env, _ := signer.SignEnvelope(context.Background(), payload, s)
+	env.Signatures[0].Timestamp = "2026-01-01T10:00:00Z"
+
+	v := New(signer.NewEd25519Verifier(s.PublicKey()))
+	if err := v.SetRevocations([]RevocationRule{
+		{
+			KeyID:       env.Signatures[0].KeyID,
+			EffectiveAt: time.Date(2026, time.February, 1, 0, 0, 0, 0, time.UTC),
+		},
+	}); err != nil {
+		t.Fatalf("SetRevocations error: %v", err)
+	}
+
+	result, err := v.VerifyEnvelope(context.Background(), env)
+	if err != nil {
+		t.Fatalf("VerifyEnvelope error: %v", err)
+	}
+	if !result.Valid {
+		t.Fatalf("verification should pass before revocation effective time: %+v", result.Checks)
+	}
+}
+
+func TestVerifyEnvelopeRevocationRejectsMalformedSignatureTimestamp(t *testing.T) {
+	s, _ := signer.GenerateEd25519Signer()
+	rec := makeTestDecisionRecord()
+	hash, _ := record.ComputeRecordHash(rec)
+	rec.Integrity.RecordHash = hash
+	payload, _ := json.Marshal(rec)
+	env, _ := signer.SignEnvelope(context.Background(), payload, s)
+	env.Signatures[0].Timestamp = "invalid-rfc3339"
+
+	v := New(signer.NewEd25519Verifier(s.PublicKey()))
+	if err := v.SetRevocations([]RevocationRule{
+		{
+			KeyID:       env.Signatures[0].KeyID,
+			EffectiveAt: time.Date(2026, time.January, 1, 0, 0, 0, 0, time.UTC),
+		},
+	}); err != nil {
+		t.Fatalf("SetRevocations error: %v", err)
+	}
+
+	result, err := v.VerifyEnvelope(context.Background(), env)
+	if err != nil {
+		t.Fatalf("VerifyEnvelope error: %v", err)
+	}
+	if result.Valid {
+		t.Fatal("verification should fail when revocation check cannot parse signature timestamp")
+	}
+
+	revocationFailed := false
+	for _, check := range result.Checks {
+		if check.Name == "key_revocation" && !check.Passed {
+			revocationFailed = true
+			if !strings.Contains(check.Error, "invalid signatures[0].timestamp") {
+				t.Fatalf("unexpected key_revocation error: %s", check.Error)
+			}
+		}
+	}
+	if !revocationFailed {
+		t.Fatal("expected key_revocation check to fail")
 	}
 }
 
