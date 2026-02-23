@@ -51,6 +51,10 @@ server:
   jwksFile: ""
   jwksURL: ""
   jwtHS256Secret: ""
+  # Strict verifier controls
+  verifyStrictOnlineRekor: false
+  verifyRekorURL: https://rekor.sigstore.dev
+  verifyRekorTimeout: 10s
   # Startup integrity controls
   rebuildOnStart: true
   failOnStartupCheck: true

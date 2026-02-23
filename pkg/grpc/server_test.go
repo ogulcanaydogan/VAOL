@@ -9,6 +9,8 @@ import (
 	"io"
 	"log/slog"
 	"net"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"sync"
 	"testing"
@@ -47,6 +49,7 @@ type testEnv struct {
 type testEnvOptions struct {
 	authMode     auth.Mode
 	authVerifier *auth.Verifier
+	strictPolicy *verifier.StrictPolicy
 }
 
 // newTestEnv sets up an in-process gRPC server + client over bufconn.
@@ -70,6 +73,9 @@ func newTestEnvWithOptions(t *testing.T, opts testEnvOptions) *testEnv {
 	cpMu := &sync.Mutex{}
 	cpSigner := merkle.NewCheckpointSigner(sig)
 	verifierObj := verifier.New(ver)
+	if opts.strictPolicy != nil {
+		verifierObj.SetStrictPolicy(*opts.strictPolicy)
+	}
 
 	cfg := vaolgrpc.Config{
 		Addr:    ":0",
@@ -194,6 +200,67 @@ func mustBuildPayloadForIdentity(t *testing.T, tenant, subject string) []byte {
 		t.Fatalf("marshal payload: %v", err)
 	}
 	return data
+}
+
+func mustBuildStrictPayload(t *testing.T, tenant, subject string) []byte {
+	t.Helper()
+	rec := record.New()
+	rec.Identity.TenantID = tenant
+	rec.Identity.Subject = subject
+	rec.Identity.SubjectType = "service"
+	rec.Model.Provider = "openai"
+	rec.Model.Name = "gpt-4o"
+	rec.PromptContext.UserPromptHash = "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	rec.PolicyContext.PolicyDecision = record.PolicyAllow
+	rec.PolicyContext.PolicyBundleID = "bundle/v1"
+	rec.PolicyContext.PolicyHash = "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+	rec.PolicyContext.DecisionReasonCode = "policy_allow"
+	rec.Output.OutputHash = "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+	rec.Output.Mode = record.OutputModeHashOnly
+	rec.Integrity.PreviousRecordHash = "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+
+	hash, err := record.ComputeRecordHash(rec)
+	if err != nil {
+		t.Fatalf("ComputeRecordHash: %v", err)
+	}
+	rec.Integrity.RecordHash = hash
+
+	tree := merkle.New()
+	leaf := tree.Append([]byte(hash))
+	rec.Integrity.MerkleTreeSize = tree.Size()
+	rec.Integrity.MerkleRoot = tree.Root()
+	proof, err := tree.InclusionProof(leaf, tree.Size())
+	if err != nil {
+		t.Fatalf("InclusionProof: %v", err)
+	}
+	rec.Integrity.InclusionProof = &record.InclusionProof{
+		LeafIndex: proof.LeafIndex,
+		Hashes:    proof.Hashes,
+	}
+	rec.Integrity.InclusionProofRef = "/v1/proofs/proof:" + rec.RequestID.String()
+
+	data, err := json.Marshal(rec)
+	if err != nil {
+		t.Fatalf("marshal strict payload: %v", err)
+	}
+	return data
+}
+
+func protoEnvelopeFromGo(env *signer.Envelope) *vaolv1.DSSEEnvelope {
+	out := &vaolv1.DSSEEnvelope{
+		PayloadType: env.PayloadType,
+		Payload:     env.Payload,
+		Signatures:  make([]*vaolv1.DSSESignature, len(env.Signatures)),
+	}
+	for i, s := range env.Signatures {
+		out.Signatures[i] = &vaolv1.DSSESignature{
+			Keyid:     s.KeyID,
+			Sig:       s.Sig,
+			Cert:      s.Cert,
+			Timestamp: s.Timestamp,
+		}
+	}
+	return out
 }
 
 // --- Tests ---
@@ -506,6 +573,53 @@ func TestVerifyRecord(t *testing.T) {
 		for _, check := range verifyResp.Checks {
 			t.Logf("  check %s: passed=%v error=%s", check.Name, check.Passed, check.Error)
 		}
+	}
+}
+
+func TestVerifyRecordStrictOnlineRekorRespectsServerConfig(t *testing.T) {
+	rekorServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.NotFound(w, r)
+	}))
+	defer rekorServer.Close()
+
+	strictPolicy := verifier.DefaultStrictPolicy()
+	strictPolicy.OnlineRekor = true
+	strictPolicy.RekorURL = rekorServer.URL
+	strictPolicy.RekorTimeout = 2 * time.Second
+
+	env := newTestEnvWithOptions(t, testEnvOptions{
+		strictPolicy: &strictPolicy,
+	})
+
+	payload := mustBuildStrictPayload(t, "test-tenant", "svc-a")
+	signedEnv, err := signer.SignEnvelope(context.Background(), payload, env.signer)
+	if err != nil {
+		t.Fatalf("SignEnvelope: %v", err)
+	}
+	signedEnv.Signatures[0].KeyID = "fulcio:https://oauth2.sigstore.dev/auth::svc-a"
+	signedEnv.Signatures[0].Cert = "mock-cert"
+	// DSSESignature protobuf does not carry rekor_entry_id; strict online mode
+	// must reject deterministically when missing.
+
+	resp, err := env.client.VerifyRecord(ctxWithTenant("test-tenant"), &vaolv1.VerifyRecordRequest{
+		Envelope:            protoEnvelopeFromGo(signedEnv),
+		VerificationProfile: "strict",
+	})
+	if err != nil {
+		t.Fatalf("VerifyRecord: %v", err)
+	}
+	if resp.Valid {
+		t.Fatal("expected strict verification failure due to missing rekor_entry_id")
+	}
+
+	found := false
+	for _, check := range resp.Checks {
+		if check.Name == "profile_strict" && strings.Contains(check.Error, "strict profile rekor verification failed: signatures[0] missing rekor_entry_id") {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("expected strict-online Rekor deterministic error, checks=%+v", resp.Checks)
 	}
 }
 

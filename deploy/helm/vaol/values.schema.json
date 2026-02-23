@@ -158,6 +158,21 @@
         "jwksFile": { "type": "string", "default": "" },
         "jwksURL": { "type": "string", "default": "" },
         "jwtHS256Secret": { "type": "string", "default": "" },
+        "verifyStrictOnlineRekor": {
+          "type": "boolean",
+          "default": false,
+          "description": "Enable strict-profile online Rekor validation in server-side verification endpoints"
+        },
+        "verifyRekorURL": {
+          "type": "string",
+          "default": "https://rekor.sigstore.dev",
+          "description": "Rekor URL used when verifyStrictOnlineRekor=true"
+        },
+        "verifyRekorTimeout": {
+          "type": "string",
+          "default": "10s",
+          "description": "Timeout for strict online Rekor verification lookups"
+        },
         "rebuildOnStart": {
           "type": "boolean",
           "default": true,

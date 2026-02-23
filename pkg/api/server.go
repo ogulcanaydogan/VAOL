@@ -29,6 +29,9 @@ type Config struct {
 	WriteTimeout                time.Duration `json:"write_timeout"`
 	WebDir                      string        `json:"web_dir"`                       // Path to auditor web UI directory (optional)
 	VerificationRevocationsFile string        `json:"verification_revocations_file"` // Path to verifier key revocation list JSON
+	VerifyStrictOnlineRekor     bool          `json:"verify_strict_online_rekor"`    // Enable online Rekor validation for strict verifier profile
+	VerifyRekorURL              string        `json:"verify_rekor_url"`              // Rekor base URL used when VerifyStrictOnlineRekor is enabled
+	VerifyRekorTimeout          time.Duration `json:"verify_rekor_timeout"`          // Rekor lookup timeout for strict verifier profile
 	CheckpointEvery             int64         `json:"checkpoint_every"`
 	CheckpointInterval          time.Duration `json:"checkpoint_interval"`
 	AnchorMode                  string        `json:"anchor_mode"` // off, local, http
@@ -61,6 +64,9 @@ func DefaultConfig() Config {
 		Addr:                     ":8080",
 		ReadTimeout:              30 * time.Second,
 		WriteTimeout:             30 * time.Second,
+		VerifyStrictOnlineRekor:  false,
+		VerifyRekorURL:           "https://rekor.sigstore.dev",
+		VerifyRekorTimeout:       10 * time.Second,
 		CheckpointEvery:          100,
 		CheckpointInterval:       5 * time.Minute,
 		AnchorMode:               "local",
@@ -124,6 +130,12 @@ func NewServer(
 		lastCheckpointAt: time.Now().UTC(),
 		logger:           logger,
 	}
+
+	strictPolicy := verifier.DefaultStrictPolicy()
+	strictPolicy.OnlineRekor = cfg.VerifyStrictOnlineRekor
+	strictPolicy.RekorURL = cfg.VerifyRekorURL
+	strictPolicy.RekorTimeout = cfg.VerifyRekorTimeout
+	s.verifier.SetStrictPolicy(strictPolicy)
 
 	if revocationPath := strings.TrimSpace(cfg.VerificationRevocationsFile); revocationPath != "" {
 		if err := s.verifier.SetRevocationsFromFile(revocationPath); err != nil {

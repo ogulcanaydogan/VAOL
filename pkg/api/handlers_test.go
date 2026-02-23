@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -730,6 +731,121 @@ func TestVerifyRecordRejectsConflictingProfileInputs(t *testing.T) {
 	defer resp3.Body.Close()
 	if resp3.StatusCode != http.StatusBadRequest {
 		t.Fatalf("expected 400, got %d", resp3.StatusCode)
+	}
+}
+
+func TestVerifyRecordStrictOnlineRekorRejectsPayloadHashMismatch(t *testing.T) {
+	rekorServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet || r.URL.Path != "/api/v1/log/entries/entry-1" {
+			http.NotFound(w, r)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"entry-1": map[string]any{
+				"spec": map[string]any{
+					"payload_hash": "sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+				},
+			},
+		})
+	}))
+	defer rekorServer.Close()
+
+	ms := store.NewMemoryStore()
+	tree := merkle.New()
+	sig, err := signer.GenerateEd25519Signer()
+	if err != nil {
+		t.Fatalf("generating signer: %v", err)
+	}
+	ver := signer.NewEd25519Verifier(sig.PublicKey())
+
+	cfg := api.DefaultConfig()
+	cfg.VerifyStrictOnlineRekor = true
+	cfg.VerifyRekorURL = rekorServer.URL
+	cfg.VerifyRekorTimeout = 2 * time.Second
+
+	srv := api.NewServer(cfg, ms, sig, []signer.Verifier{ver}, tree, nil, slog.Default())
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	rec := record.New()
+	rec.Identity.TenantID = "test-tenant"
+	rec.Identity.Subject = "test-user"
+	rec.Model.Provider = "openai"
+	rec.Model.Name = "gpt-4o"
+	rec.PromptContext.UserPromptHash = "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	rec.PolicyContext.PolicyDecision = record.PolicyAllow
+	rec.PolicyContext.PolicyBundleID = "bundle/v1"
+	rec.PolicyContext.PolicyHash = "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+	rec.PolicyContext.DecisionReasonCode = "policy_allow"
+	rec.Output.OutputHash = "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+	rec.Output.Mode = record.OutputModeHashOnly
+	rec.Integrity.PreviousRecordHash = "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+
+	recordHash, err := record.ComputeRecordHash(rec)
+	if err != nil {
+		t.Fatalf("ComputeRecordHash error: %v", err)
+	}
+	rec.Integrity.RecordHash = recordHash
+
+	leaf := tree.Append([]byte(recordHash))
+	rec.Integrity.MerkleTreeSize = tree.Size()
+	rec.Integrity.MerkleRoot = tree.Root()
+	proof, err := tree.InclusionProof(leaf, tree.Size())
+	if err != nil {
+		t.Fatalf("InclusionProof error: %v", err)
+	}
+	rec.Integrity.InclusionProof = &record.InclusionProof{
+		LeafIndex: proof.LeafIndex,
+		Hashes:    proof.Hashes,
+	}
+	rec.Integrity.InclusionProofRef = "/v1/proofs/proof:" + rec.RequestID.String()
+
+	fullPayload, err := json.Marshal(rec)
+	if err != nil {
+		t.Fatalf("marshal record: %v", err)
+	}
+	env, err := signer.SignEnvelope(context.Background(), fullPayload, sig)
+	if err != nil {
+		t.Fatalf("sign envelope: %v", err)
+	}
+	env.Signatures[0].KeyID = "fulcio:https://oauth2.sigstore.dev/auth::svc-a"
+	env.Signatures[0].Cert = "mock-cert"
+	env.Signatures[0].RekorEntryID = "entry-1"
+
+	verifyReq := map[string]any{
+		"envelope": env,
+	}
+	verifyBody, _ := json.Marshal(verifyReq)
+	resp := mustPost(t, ts.URL+"/v1/verify?profile=strict", "application/json", verifyBody)
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+
+	var result map[string]any
+	decodeJSON(t, resp.Body, &result)
+	if result["valid"] != false {
+		t.Fatalf("expected strict verification failure, got %v", result["valid"])
+	}
+	checks, ok := result["checks"].([]any)
+	if !ok {
+		t.Fatalf("checks has unexpected type %T", result["checks"])
+	}
+	found := false
+	for _, c := range checks {
+		check, ok := c.(map[string]any)
+		if !ok {
+			continue
+		}
+		if check["name"] == "profile_strict" {
+			if msg, _ := check["error"].(string); strings.Contains(msg, "strict profile rekor verification failed:") {
+				found = true
+			}
+		}
+	}
+	if !found {
+		t.Fatalf("expected strict profile rekor verification failure, checks=%+v", checks)
 	}
 }
 

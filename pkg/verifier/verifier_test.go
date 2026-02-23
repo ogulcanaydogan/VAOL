@@ -2,11 +2,15 @@ package verifier
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
 
+	vaolcrypto "github.com/ogulcanaydogan/vaol/pkg/crypto"
 	"github.com/ogulcanaydogan/vaol/pkg/export"
 	"github.com/ogulcanaydogan/vaol/pkg/merkle"
 	"github.com/ogulcanaydogan/vaol/pkg/record"
@@ -319,6 +323,203 @@ func TestVerifyEnvelopeStrictRejectsInvalidSignatureTimestamp(t *testing.T) {
 	}
 	if result.Valid {
 		t.Fatal("strict profile should reject invalid signature timestamp")
+	}
+}
+
+func TestVerifyEnvelopeStrictRequiresAuthIssuerWhenAuthenticated(t *testing.T) {
+	s, _ := signer.GenerateEd25519Signer()
+	rec := makeTestDecisionRecord()
+	rec.AuthContext = &record.AuthContext{
+		Authenticated: true,
+		Subject:       "svc-a",
+		TokenHash:     "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+		Source:        "jwt",
+	}
+	enrichStrictEvidence(t, rec)
+	payload, _ := json.Marshal(rec)
+	env, _ := signer.SignEnvelope(context.Background(), payload, s)
+
+	v := New(signer.NewEd25519Verifier(s.PublicKey()))
+	result, err := v.VerifyEnvelopeWithProfile(context.Background(), env, ProfileStrict)
+	if err != nil {
+		t.Fatalf("VerifyEnvelopeWithProfile error: %v", err)
+	}
+	if result.Valid {
+		t.Fatal("strict profile should reject missing auth_context.issuer")
+	}
+
+	found := false
+	for _, check := range result.Checks {
+		if check.Name == "profile_strict" && strings.Contains(check.Error, "strict profile requires auth_context.issuer when auth_context.authenticated=true") {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("expected deterministic issuer error, got checks=%+v", result.Checks)
+	}
+}
+
+func TestVerifyEnvelopeStrictRequiresAuthSourceWhenAuthenticated(t *testing.T) {
+	s, _ := signer.GenerateEd25519Signer()
+	rec := makeTestDecisionRecord()
+	rec.AuthContext = &record.AuthContext{
+		Authenticated: true,
+		Subject:       "svc-a",
+		TokenHash:     "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+		Issuer:        "https://issuer.example",
+	}
+	enrichStrictEvidence(t, rec)
+	payload, _ := json.Marshal(rec)
+	env, _ := signer.SignEnvelope(context.Background(), payload, s)
+
+	v := New(signer.NewEd25519Verifier(s.PublicKey()))
+	result, err := v.VerifyEnvelopeWithProfile(context.Background(), env, ProfileStrict)
+	if err != nil {
+		t.Fatalf("VerifyEnvelopeWithProfile error: %v", err)
+	}
+	if result.Valid {
+		t.Fatal("strict profile should reject missing auth_context.source")
+	}
+
+	found := false
+	for _, check := range result.Checks {
+		if check.Name == "profile_strict" && strings.Contains(check.Error, "strict profile requires auth_context.source when auth_context.authenticated=true") {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("expected deterministic source error, got checks=%+v", result.Checks)
+	}
+}
+
+func TestVerifyEnvelopeStrictAcceptsAuthIssuerAndSourceWhenAuthenticated(t *testing.T) {
+	s, _ := signer.GenerateEd25519Signer()
+	rec := makeTestDecisionRecord()
+	rec.AuthContext = &record.AuthContext{
+		Authenticated: true,
+		Subject:       "svc-a",
+		TokenHash:     "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+		Issuer:        "https://issuer.example",
+		Source:        "jwt",
+	}
+	enrichStrictEvidence(t, rec)
+	payload, _ := json.Marshal(rec)
+	env, _ := signer.SignEnvelope(context.Background(), payload, s)
+
+	v := New(signer.NewEd25519Verifier(s.PublicKey()))
+	result, err := v.VerifyEnvelopeWithProfile(context.Background(), env, ProfileStrict)
+	if err != nil {
+		t.Fatalf("VerifyEnvelopeWithProfile error: %v", err)
+	}
+	if !result.Valid {
+		t.Fatalf("strict profile should pass with auth issuer/source populated: %+v", result.Checks)
+	}
+}
+
+func TestVerifyEnvelopeStrictOnlineRekorPassesWithMatchingPayloadHash(t *testing.T) {
+	s, _ := signer.GenerateEd25519Signer()
+	rec := makeTestDecisionRecord()
+	enrichStrictEvidence(t, rec)
+	payload, _ := json.Marshal(rec)
+	env, _ := signer.SignEnvelope(context.Background(), payload, s)
+	env.Signatures[0].KeyID = "fulcio:https://oauth2.sigstore.dev/auth::svc-a"
+	env.Signatures[0].Cert = "mock-cert"
+	env.Signatures[0].RekorEntryID = "entry-1"
+
+	payloadBytes, err := signer.ExtractPayload(env)
+	if err != nil {
+		t.Fatalf("ExtractPayload error: %v", err)
+	}
+	expectedPayloadHash := vaolcrypto.SHA256Prefixed(signer.PAE(env.PayloadType, payloadBytes))
+
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet || r.URL.Path != "/api/v1/log/entries/entry-1" {
+			http.NotFound(w, r)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		body, _ := json.Marshal(map[string]any{
+			"spec": map[string]any{
+				"payload_hash": expectedPayloadHash,
+			},
+		})
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"entry-1": map[string]any{
+				"body": base64.StdEncoding.EncodeToString(body),
+			},
+		})
+	}))
+	defer ts.Close()
+
+	v := New(signer.NewEd25519Verifier(s.PublicKey()))
+	v.SetStrictPolicy(StrictPolicy{
+		OnlineRekor:       true,
+		RekorURL:          ts.URL,
+		RekorTimeout:      time.Second,
+		RequireAuthIssuer: true,
+		RequireAuthSource: true,
+	})
+
+	result, err := v.VerifyEnvelopeWithProfile(context.Background(), env, ProfileStrict)
+	if err != nil {
+		t.Fatalf("VerifyEnvelopeWithProfile error: %v", err)
+	}
+	if !result.Valid {
+		t.Fatalf("strict profile should pass with matching Rekor payload hash: %+v", result.Checks)
+	}
+}
+
+func TestVerifyEnvelopeStrictOnlineRekorRejectsPayloadHashMismatch(t *testing.T) {
+	s, _ := signer.GenerateEd25519Signer()
+	rec := makeTestDecisionRecord()
+	enrichStrictEvidence(t, rec)
+	payload, _ := json.Marshal(rec)
+	env, _ := signer.SignEnvelope(context.Background(), payload, s)
+	env.Signatures[0].KeyID = "fulcio:https://oauth2.sigstore.dev/auth::svc-a"
+	env.Signatures[0].Cert = "mock-cert"
+	env.Signatures[0].RekorEntryID = "entry-1"
+
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet || r.URL.Path != "/api/v1/log/entries/entry-1" {
+			http.NotFound(w, r)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"entry-1": map[string]any{
+				"spec": map[string]any{
+					"payload_hash": "sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+				},
+			},
+		})
+	}))
+	defer ts.Close()
+
+	v := New(signer.NewEd25519Verifier(s.PublicKey()))
+	v.SetStrictPolicy(StrictPolicy{
+		OnlineRekor:       true,
+		RekorURL:          ts.URL,
+		RekorTimeout:      time.Second,
+		RequireAuthIssuer: true,
+		RequireAuthSource: true,
+	})
+
+	result, err := v.VerifyEnvelopeWithProfile(context.Background(), env, ProfileStrict)
+	if err != nil {
+		t.Fatalf("VerifyEnvelopeWithProfile error: %v", err)
+	}
+	if result.Valid {
+		t.Fatal("strict profile should fail when Rekor payload hash mismatches")
+	}
+
+	found := false
+	for _, check := range result.Checks {
+		if check.Name == "profile_strict" && strings.Contains(check.Error, "strict profile rekor verification failed:") {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("expected deterministic Rekor strict error, got checks=%+v", result.Checks)
 	}
 }
 

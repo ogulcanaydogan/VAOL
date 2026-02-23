@@ -10,7 +10,8 @@ This profile hardens VAOL for regulated deployments by enforcing fail-closed beh
 4. Enable deterministic checkpoint behavior (`checkpointEvery`, `checkpointInterval`, `anchorMode`).
 5. Enforce startup anchor continuity validation (`anchorContinuityRequired=true`).
 6. Prefer Sigstore strict mode in connected environments (`sigstoreRekorRequired=true` in production profile).
-7. Optionally enable Kafka append-event publishing for high-scale downstream indexing/export pipelines.
+7. Enable strict-profile online Rekor verification for server-side verify endpoints in connected production.
+8. Optionally enable Kafka append-event publishing for high-scale downstream indexing/export pipelines.
 
 ## Helm Values Mapping
 
@@ -26,6 +27,9 @@ When `profile.mode=production`, the server args are forced to:
 - `--anchor-mode` from `profile.production.anchorMode` (default `local`)
 - `--anchor-continuity-required` from `profile.production.anchorContinuityRequired` (default `true`)
 - `--sigstore-rekor-required` from `profile.production.sigstoreRekorRequired` (default `true`, when signer mode is `sigstore`)
+- `--verify-strict-online-rekor` from `server.verifyStrictOnlineRekor` (recommended `true` in connected production)
+- `--verify-rekor-url` from `server.verifyRekorURL` (recommended `https://rekor.sigstore.dev`)
+- `--verify-rekor-timeout` from `server.verifyRekorTimeout` (default `10s`)
 - `--fail-on-startup-check` from `profile.production.failOnStartupCheck` (default `true`)
 
 ## Recommended Override File
@@ -47,6 +51,9 @@ server:
   jwtTenantClaim: tenant_id
   jwtSubjectClaim: sub
   jwksURL: https://issuer.example.com/.well-known/jwks.json
+  verifyStrictOnlineRekor: true
+  verifyRekorURL: https://rekor.sigstore.dev
+  verifyRekorTimeout: 10s
 
   policyMode: fail-closed
   checkpointEvery: 100
@@ -84,4 +91,5 @@ helm upgrade --install vaol ./deploy/helm/vaol \
 4. Checkpoint records are persisted and available via `/v1/ledger/checkpoints/latest`.
 5. Startup fails closed if latest checkpoint anchor continuity cannot be verified.
 6. `vaol verify bundle --profile strict --transcript-json ...` passes for untampered bundles and fails for tampered bundles.
-7. If `ingestMode=kafka`, check topic receives append events with `event_type=decision_record_appended`.
+7. `POST /v1/verify?profile=strict` fails deterministically on Sigstore Rekor payload-hash mismatch when online verification is enabled.
+8. If `ingestMode=kafka`, check topic receives append events with `event_type=decision_record_appended`.

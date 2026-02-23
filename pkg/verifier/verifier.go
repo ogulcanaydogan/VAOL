@@ -63,6 +63,8 @@ const (
 type Verifier struct {
 	sigVerifiers []signer.Verifier
 	revocations  map[string][]revocationWindow
+	strictPolicy StrictPolicy
+	rekorClient  RekorClient
 }
 
 // New creates a new Verifier with the given signature verifiers.
@@ -70,6 +72,8 @@ func New(verifiers ...signer.Verifier) *Verifier {
 	return &Verifier{
 		sigVerifiers: verifiers,
 		revocations:  map[string][]revocationWindow{},
+		strictPolicy: DefaultStrictPolicy(),
+		rekorClient:  NewHTTPRekorClient(nil),
 	}
 }
 
@@ -219,11 +223,15 @@ func (v *Verifier) VerifyEnvelopeWithProfile(ctx context.Context, env *signer.En
 			strictCheck.Error = "strict profile requires integrity.inclusion_proof_ref"
 			result.Valid = false
 		default:
-			if err := validateStrictEnvelopeMetadata(env, &rec); err != nil {
+			if err := validateStrictEnvelopeMetadata(env, &rec, v.strictPolicy); err != nil {
 				strictCheck.Passed = false
 				strictCheck.Error = err.Error()
 				result.Valid = false
 			} else if err := verifyAllEnvelopeSignatures(ctx, env, v.sigVerifiers); err != nil {
+				strictCheck.Passed = false
+				strictCheck.Error = err.Error()
+				result.Valid = false
+			} else if err := v.verifyStrictSigstoreRekor(ctx, env); err != nil {
 				strictCheck.Passed = false
 				strictCheck.Error = err.Error()
 				result.Valid = false
@@ -270,7 +278,7 @@ func (v *Verifier) VerifyEnvelopeWithProfile(ctx context.Context, env *signer.En
 	return result, nil
 }
 
-func validateStrictEnvelopeMetadata(env *signer.Envelope, rec *record.DecisionRecord) error {
+func validateStrictEnvelopeMetadata(env *signer.Envelope, rec *record.DecisionRecord, strictPolicy StrictPolicy) error {
 	for i, sig := range env.Signatures {
 		if sig.Timestamp == "" {
 			return fmt.Errorf("strict profile requires signatures[%d].timestamp", i)
@@ -279,7 +287,7 @@ func validateStrictEnvelopeMetadata(env *signer.Envelope, rec *record.DecisionRe
 			return fmt.Errorf("strict profile requires RFC3339 signatures[%d].timestamp: %v", i, err)
 		}
 		if isSigstoreKeyID(sig.KeyID) {
-			if sig.RekorEntryID == "" {
+			if !strictPolicy.OnlineRekor && sig.RekorEntryID == "" {
 				return fmt.Errorf("strict profile requires rekor_entry_id for Sigstore signatures")
 			}
 			if sig.Cert == "" {
@@ -293,12 +301,60 @@ func validateStrictEnvelopeMetadata(env *signer.Envelope, rec *record.DecisionRe
 	if rec.AuthContext != nil && rec.AuthContext.Authenticated && rec.AuthContext.TokenHash == "" {
 		return fmt.Errorf("strict profile requires auth_context.token_hash when auth_context.authenticated=true")
 	}
+	if rec.AuthContext != nil && rec.AuthContext.Authenticated && strictPolicy.RequireAuthIssuer && rec.AuthContext.Issuer == "" {
+		return fmt.Errorf("strict profile requires auth_context.issuer when auth_context.authenticated=true")
+	}
+	if rec.AuthContext != nil && rec.AuthContext.Authenticated && strictPolicy.RequireAuthSource && rec.AuthContext.Source == "" {
+		return fmt.Errorf("strict profile requires auth_context.source when auth_context.authenticated=true")
+	}
 	if rec.Integrity.InclusionProof != nil && rec.Integrity.InclusionProof.LeafIndex < 0 {
 		return fmt.Errorf("strict profile requires non-negative integrity.inclusion_proof.leaf_index")
 	}
 	if rec.Integrity.InclusionProof != nil && rec.Integrity.InclusionProof.LeafIndex >= rec.Integrity.MerkleTreeSize {
 		return fmt.Errorf("strict profile requires integrity.inclusion_proof.leaf_index < integrity.merkle_tree_size")
 	}
+	return nil
+}
+
+func (v *Verifier) verifyStrictSigstoreRekor(ctx context.Context, env *signer.Envelope) error {
+	if !v.strictPolicy.OnlineRekor {
+		return nil
+	}
+	if v.rekorClient == nil {
+		return fmt.Errorf("strict profile rekor verification failed: missing rekor client")
+	}
+
+	rekorURL := strings.TrimSpace(v.strictPolicy.RekorURL)
+	if rekorURL == "" {
+		return fmt.Errorf("strict profile rekor verification failed: missing strict policy rekor url")
+	}
+
+	payload, err := signer.ExtractPayload(env)
+	if err != nil {
+		return fmt.Errorf("strict profile rekor verification failed: extracting envelope payload: %w", err)
+	}
+	verifiedPayload := signer.PAE(env.PayloadType, payload)
+
+	for i, sig := range env.Signatures {
+		if !isSigstoreKeyID(sig.KeyID) {
+			continue
+		}
+		if sig.RekorEntryID == "" {
+			return fmt.Errorf("strict profile rekor verification failed: signatures[%d] missing rekor_entry_id", i)
+		}
+
+		callCtx := ctx
+		cancel := func() {}
+		if v.strictPolicy.RekorTimeout > 0 {
+			callCtx, cancel = context.WithTimeout(ctx, v.strictPolicy.RekorTimeout)
+		}
+		err := v.rekorClient.VerifyEntry(callCtx, rekorURL, sig.RekorEntryID, verifiedPayload)
+		cancel()
+		if err != nil {
+			return fmt.Errorf("strict profile rekor verification failed: signatures[%d]: %w", i, err)
+		}
+	}
+
 	return nil
 }
 

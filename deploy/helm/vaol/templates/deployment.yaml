@@ -49,6 +49,8 @@ spec:
             - --policy-mode={{ $policyMode }}
             - --jwt-tenant-claim={{ .Values.server.jwtTenantClaim }}
             - --jwt-subject-claim={{ .Values.server.jwtSubjectClaim }}
+            - --verify-strict-online-rekor={{ .Values.server.verifyStrictOnlineRekor }}
+            - --verify-rekor-timeout={{ .Values.server.verifyRekorTimeout }}
             - --checkpoint-every={{ .Values.server.checkpointEvery }}
             - --checkpoint-interval={{ .Values.server.checkpointInterval }}
             - --anchor-mode={{ $anchorMode }}
@@ -69,6 +71,9 @@ spec:
             {{- end }}
             {{- if .Values.server.jwtHS256Secret }}
             - --jwt-hs256-secret={{ .Values.server.jwtHS256Secret }}
+            {{- end }}
+            {{- if .Values.server.verifyRekorURL }}
+            - --verify-rekor-url={{ .Values.server.verifyRekorURL }}
             {{- end }}
             {{- if .Values.server.anchorURL }}
             - --anchor-url={{ .Values.server.anchorURL }}

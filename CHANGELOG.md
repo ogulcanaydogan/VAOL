@@ -5,6 +5,35 @@ All notable changes to VAOL will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.24] - 2026-02-23
+
+### Added
+
+- **Strict verifier policy controls** — Added `StrictPolicy` configuration and setter in `pkg/verifier` with secure defaults for strict-profile auth-context completeness and optional online Rekor checks.
+- **Online Rekor verification client** — Added `pkg/verifier/rekor.go` with payload-hash binding validation against Rekor entry `spec.payload_hash`.
+- **CLI Sigstore parity flags** — Added `vaol verify record|bundle` flags:
+  - `--sigstore-verify`
+  - `--sigstore-oidc-issuer`
+  - `--sigstore-rekor-url`
+  - `--sigstore-rekor-required`
+- **Regression coverage for strict hardening** — Added verifier, API, gRPC, and CLI tests for strict auth-context checks, Rekor mismatch failures, and Sigstore verification wiring.
+
+### Changed
+
+- **Strict-profile auth-context hardening** — When `auth_context.authenticated=true`, strict verification now deterministically requires `auth_context.issuer` and `auth_context.source` in addition to existing `subject` and `token_hash` checks.
+- **Server-configurable strict online Rekor checks** — Added `vaol-server` flags:
+  - `--verify-strict-online-rekor` (default `false`)
+  - `--verify-rekor-url` (default `https://rekor.sigstore.dev`)
+  - `--verify-rekor-timeout` (default `10s`)
+- **REST + gRPC verifier parity** — `cmd/vaol-server` now applies strict-policy settings to both REST and gRPC verifier instances.
+- **Helm production controls** — Added chart values/schema/template wiring for strict online Rekor verification server flags.
+- **CLI verification command behavior** — `vaol verify record|bundle` now return errors on verification failure instead of calling `os.Exit` inside subcommand handlers (non-zero process exit behavior remains via root command).
+
+### Fixed
+
+- **Deterministic strict Rekor failure semantics** — Strict-profile online Rekor mismatches now fail with stable `strict profile rekor verification failed: ...` message prefix.
+- **Release metadata alignment** — Synchronized Python SDK, TypeScript SDK, Helm chart, and API reference to version `0.2.24`.
+
 ## [0.2.23] - 2026-02-23
 
 ### Added
@@ -192,6 +221,7 @@ Initial public release of the Verifiable AI Output Ledger.
 - Startup Merkle rebuild with checkpoint/root validation.
 - Tenant-bound API access with cross-tenant rejection.
 
+[0.2.24]: https://github.com/ogulcanaydogan/Verifiable-AI-Output-Ledger/releases/tag/v0.2.24
 [0.2.23]: https://github.com/ogulcanaydogan/Verifiable-AI-Output-Ledger/releases/tag/v0.2.23
 [0.2.22]: https://github.com/ogulcanaydogan/Verifiable-AI-Output-Ledger/releases/tag/v0.2.22
 [0.2.11]: https://github.com/ogulcanaydogan/Verifiable-AI-Output-Ledger/releases/tag/v0.2.11

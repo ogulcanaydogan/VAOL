@@ -85,6 +85,10 @@ func newVerifyBundleCmd() *cobra.Command {
 	var pubKeyPath string
 	var profile string
 	var revocationsFile string
+	var sigstoreVerify bool
+	var sigstoreOIDCIssuer string
+	var sigstoreRekorURL string
+	var sigstoreRekorRequired bool
 	var transcriptJSONPath string
 	var reportJSONPath string
 	var reportMarkdownPath string
@@ -100,14 +104,15 @@ func newVerifyBundleCmd() *cobra.Command {
 				return fmt.Errorf("reading bundle: %w", err)
 			}
 
-			// Load verifier
-			var verifiers []signer.Verifier
-			if pubKeyPath != "" {
-				pubKey, err := signer.LoadPublicKeyPEM(pubKeyPath)
-				if err != nil {
-					return fmt.Errorf("loading public key: %w", err)
-				}
-				verifiers = append(verifiers, signer.NewEd25519Verifier(pubKey))
+			verifiers, err := buildVerificationVerifiers(
+				pubKeyPath,
+				sigstoreVerify,
+				sigstoreOIDCIssuer,
+				sigstoreRekorURL,
+				sigstoreRekorRequired,
+			)
+			if err != nil {
+				return err
 			}
 
 			v := verifier.New(verifiers...)
@@ -187,7 +192,7 @@ func newVerifyBundleCmd() *cobra.Command {
 
 			if result.InvalidRecords > 0 || result.Summary != "VERIFICATION PASSED" {
 				fmt.Println("\nVERIFICATION FAILED")
-				os.Exit(1)
+				return fmt.Errorf("verification failed")
 			}
 			fmt.Println("\nVERIFICATION PASSED")
 			return nil
@@ -196,6 +201,10 @@ func newVerifyBundleCmd() *cobra.Command {
 	cmd.Flags().StringVar(&pubKeyPath, "public-key", "", "Ed25519 public key PEM for signature verification")
 	cmd.Flags().StringVar(&profile, "profile", string(verifier.ProfileBasic), "verification profile: basic, strict, fips")
 	cmd.Flags().StringVar(&revocationsFile, "revocations-file", "", "path to revocation list JSON with keyid/effective_at rules")
+	cmd.Flags().BoolVar(&sigstoreVerify, "sigstore-verify", false, "enable Sigstore signature verification")
+	cmd.Flags().StringVar(&sigstoreOIDCIssuer, "sigstore-oidc-issuer", "https://oauth2.sigstore.dev/auth", "expected Sigstore OIDC issuer")
+	cmd.Flags().StringVar(&sigstoreRekorURL, "sigstore-rekor-url", "https://rekor.sigstore.dev", "Sigstore Rekor URL")
+	cmd.Flags().BoolVar(&sigstoreRekorRequired, "sigstore-rekor-required", false, "require Rekor entry verification for Sigstore signatures")
 	cmd.Flags().StringVar(&transcriptJSONPath, "transcript-json", "", "write deterministic verification transcript to JSON file")
 	cmd.Flags().StringVar(&reportJSONPath, "report-json", "", "write verification report JSON")
 	cmd.Flags().StringVar(&reportMarkdownPath, "report-markdown", "", "write verification report Markdown")
@@ -206,6 +215,10 @@ func newVerifyRecordCmd() *cobra.Command {
 	var pubKeyPath string
 	var profile string
 	var revocationsFile string
+	var sigstoreVerify bool
+	var sigstoreOIDCIssuer string
+	var sigstoreRekorURL string
+	var sigstoreRekorRequired bool
 	cmd := &cobra.Command{
 		Use:   "record <file>",
 		Short: "Verify a single DSSE envelope",
@@ -221,13 +234,15 @@ func newVerifyRecordCmd() *cobra.Command {
 				return fmt.Errorf("parsing envelope: %w", err)
 			}
 
-			var verifiers []signer.Verifier
-			if pubKeyPath != "" {
-				pubKey, err := signer.LoadPublicKeyPEM(pubKeyPath)
-				if err != nil {
-					return fmt.Errorf("loading public key: %w", err)
-				}
-				verifiers = append(verifiers, signer.NewEd25519Verifier(pubKey))
+			verifiers, err := buildVerificationVerifiers(
+				pubKeyPath,
+				sigstoreVerify,
+				sigstoreOIDCIssuer,
+				sigstoreRekorURL,
+				sigstoreRekorRequired,
+			)
+			if err != nil {
+				return err
 			}
 
 			v := verifier.New(verifiers...)
@@ -267,7 +282,7 @@ func newVerifyRecordCmd() *cobra.Command {
 
 			if !result.Valid {
 				fmt.Println("\nVERIFICATION FAILED")
-				os.Exit(1)
+				return fmt.Errorf("verification failed")
 			}
 			fmt.Println("\nVERIFICATION PASSED")
 			return nil
@@ -276,7 +291,43 @@ func newVerifyRecordCmd() *cobra.Command {
 	cmd.Flags().StringVar(&pubKeyPath, "public-key", "", "Ed25519 public key PEM")
 	cmd.Flags().StringVar(&profile, "profile", string(verifier.ProfileBasic), "verification profile: basic, strict, fips")
 	cmd.Flags().StringVar(&revocationsFile, "revocations-file", "", "path to revocation list JSON with keyid/effective_at rules")
+	cmd.Flags().BoolVar(&sigstoreVerify, "sigstore-verify", false, "enable Sigstore signature verification")
+	cmd.Flags().StringVar(&sigstoreOIDCIssuer, "sigstore-oidc-issuer", "https://oauth2.sigstore.dev/auth", "expected Sigstore OIDC issuer")
+	cmd.Flags().StringVar(&sigstoreRekorURL, "sigstore-rekor-url", "https://rekor.sigstore.dev", "Sigstore Rekor URL")
+	cmd.Flags().BoolVar(&sigstoreRekorRequired, "sigstore-rekor-required", false, "require Rekor entry verification for Sigstore signatures")
 	return cmd
+}
+
+func buildVerificationVerifiers(
+	pubKeyPath string,
+	sigstoreVerify bool,
+	sigstoreOIDCIssuer string,
+	sigstoreRekorURL string,
+	sigstoreRekorRequired bool,
+) ([]signer.Verifier, error) {
+	var verifiers []signer.Verifier
+
+	if pubKeyPath != "" {
+		pubKey, err := signer.LoadPublicKeyPEM(pubKeyPath)
+		if err != nil {
+			return nil, fmt.Errorf("loading public key: %w", err)
+		}
+		verifiers = append(verifiers, signer.NewEd25519Verifier(pubKey))
+	}
+
+	if sigstoreVerify {
+		cfg := signer.DefaultSigstoreConfig()
+		if sigstoreOIDCIssuer != "" {
+			cfg.OIDCIssuer = sigstoreOIDCIssuer
+		}
+		if sigstoreRekorURL != "" {
+			cfg.RekorURL = sigstoreRekorURL
+		}
+		cfg.RequireRekor = sigstoreRekorRequired
+		verifiers = append(verifiers, signer.NewSigstoreVerifier(cfg))
+	}
+
+	return verifiers, nil
 }
 
 func newInspectCmd() *cobra.Command {

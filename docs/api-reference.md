@@ -1,6 +1,6 @@
 # VAOL REST API Reference
 
-**Version:** 0.2.23
+**Version:** 0.2.24
 **Base URL:** `http://<host>:8080`
 **Content-Type:** `application/json`
 
@@ -116,7 +116,7 @@ Every response includes the following headers:
 | Header | Description | Example |
 |--------|-------------|---------|
 | `X-Request-ID` | Unique identifier for the request. Echoes the client-supplied `X-Request-ID` header if present; otherwise auto-generated. | `vaol-1708300000000000000` |
-| `X-VAOL-Version` | Server version string. | `0.2.23` |
+| `X-VAOL-Version` | Server version string. | `0.2.24` |
 | `X-VAOL-Record-ID` | The `request_id` (UUID) of the appended record. Present only on `POST /v1/records` responses. | `a1b2c3d4-e5f6-7890-abcd-ef1234567890` |
 | `X-VAOL-Sequence` | The assigned sequence number in the ledger. Present only on `POST /v1/records` responses. | `42` |
 | `Content-Type` | Always `application/json`. | `application/json` |
@@ -426,6 +426,8 @@ If both query and body profile are provided, they must match.
 3. The embedded inclusion proof must verify against `integrity.record_hash`.
 4. Every signature must include an RFC 3339 `timestamp`.
 5. Sigstore/Fulcio signatures must include both `rekor_entry_id` and `cert`.
+6. If `auth_context.authenticated=true`, strict mode requires `auth_context.subject`, `auth_context.token_hash`, `auth_context.issuer`, and `auth_context.source`.
+7. If server runtime flag `--verify-strict-online-rekor=true` is enabled, strict mode additionally performs online Rekor verification against `--verify-rekor-url` and rejects payload hash mismatches deterministically.
 
 `fips` profile runs all strict checks, then additionally rejects Ed25519 signatures.
 
@@ -795,7 +797,7 @@ GET /v1/health
 ```json
 {
   "status": "ok",
-  "version": "0.2.23",
+  "version": "0.2.24",
   "record_count": 1024,
   "tree_size": 1024
 }

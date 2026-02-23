@@ -103,6 +103,8 @@ The server returns the bundle as a JSON response. Save it to a file for offline 
 
 ### Running the Verification
 
+Ed25519 workflow (offline/local key trust):
+
 ```bash
 vaol verify bundle audit-bundle.json \
   --public-key /path/to/vaol-signing.pub \
@@ -111,11 +113,24 @@ vaol verify bundle audit-bundle.json \
 
 The `--public-key` flag points to the Ed25519 public key PEM used by the VAOL server that signed the records. If your organization distributes the public key through a key management system, retrieve it from there. The optional `--revocations-file` flag enforces compromised-key deny rules with RFC3339 effective timestamps.
 
+Sigstore workflow (keyless/certificate-bound trust):
+
+```bash
+vaol verify bundle audit-bundle.json \
+  --profile strict \
+  --sigstore-verify \
+  --sigstore-oidc-issuer https://oauth2.sigstore.dev/auth \
+  --sigstore-rekor-url https://rekor.sigstore.dev \
+  --sigstore-rekor-required
+```
+
+The same Sigstore flags are supported by `vaol verify record` for single-envelope checks.
+
 ### What the Verifier Checks
 
 The verifier performs these checks on every record in the bundle:
 
-1. **Signature validity** -- Each DSSE envelope's Ed25519 signature is verified against the supplied public key. The check confirms that the payload has not been altered since signing.
+1. **Signature validity** -- Each DSSE envelope signature is verified against configured verifiers (Ed25519 public key and/or Sigstore verifier). The check confirms that the payload has not been altered since signing.
 
 2. **Schema conformance** -- The payload inside each envelope is validated against the DecisionRecord v1 schema. Required fields (`schema_version`, `request_id`, `timestamp`, `identity`, `model`, `parameters`, `prompt_context`, `policy_context`, `output`, `trace`, `integrity`) must all be present and correctly typed.
 
@@ -399,8 +414,9 @@ The raw model output is stored directly in the record. This mode should only be 
 | Task                        | Command                                                                 |
 |-----------------------------|-------------------------------------------------------------------------|
 | Export a bundle             | `vaol export --tenant <id> --after <date> --before <date> --output <file>` |
-| Verify a bundle             | `vaol verify bundle <file> --public-key <key.pub> [--revocations-file <revocations.json>]` |
-| Verify a single envelope    | `vaol verify record <file> --public-key <key.pub> [--revocations-file <revocations.json>]` |
+| Verify a bundle (Ed25519)   | `vaol verify bundle <file> --public-key <key.pub> [--revocations-file <revocations.json>]` |
+| Verify a bundle (Sigstore)  | `vaol verify bundle <file> --profile strict --sigstore-verify --sigstore-rekor-required [--sigstore-oidc-issuer <issuer>] [--sigstore-rekor-url <url>]` |
+| Verify a single envelope    | `vaol verify record <file> --public-key <key.pub> [--sigstore-verify] [--revocations-file <revocations.json>]` |
 | Inspect a record            | `vaol inspect <envelope-file>`                                          |
 | Generate a signing key pair | `vaol keys generate --output <dir>`                                     |
 

@@ -65,6 +65,9 @@ func main() {
 		jwtClockSkew          = flag.Duration("jwt-clock-skew", 30*time.Second, "allowed JWT clock skew")
 		webDir                = flag.String("web-dir", "", "path to auditor web UI directory (serves at /ui/)")
 		verifyRevocationsFile = flag.String("verify-revocations-file", "", "path to verifier key revocation list JSON")
+		verifyStrictOnlineRek = flag.Bool("verify-strict-online-rekor", false, "enable online Rekor validation for strict verification profile")
+		verifyRekorURL        = flag.String("verify-rekor-url", "https://rekor.sigstore.dev", "Rekor URL used for strict online verification")
+		verifyRekorTimeout    = flag.Duration("verify-rekor-timeout", 10*time.Second, "timeout for strict online Rekor verification")
 		checkpointEvery       = flag.Int64("checkpoint-every", 100, "persist a signed checkpoint every N records")
 		checkpointInterval    = flag.Duration("checkpoint-interval", 5*time.Minute, "persist a signed checkpoint at least every duration")
 		anchorMode            = flag.String("anchor-mode", "local", "checkpoint anchoring mode: off, local, http")
@@ -181,6 +184,9 @@ func main() {
 		WebDir:                      *webDir,
 		EmbeddedWebFS:               embeddedWebFS,
 		VerificationRevocationsFile: *verifyRevocationsFile,
+		VerifyStrictOnlineRekor:     *verifyStrictOnlineRek,
+		VerifyRekorURL:              *verifyRekorURL,
+		VerifyRekorTimeout:          *verifyRekorTimeout,
 		CheckpointEvery:             *checkpointEvery,
 		CheckpointInterval:          *checkpointInterval,
 		AnchorMode:                  *anchorMode,
@@ -234,6 +240,11 @@ func main() {
 
 		cpMu := &sync.Mutex{}
 		ver := verifier.New(verifiers...)
+		strictPolicy := verifier.DefaultStrictPolicy()
+		strictPolicy.OnlineRekor = *verifyStrictOnlineRek
+		strictPolicy.RekorURL = *verifyRekorURL
+		strictPolicy.RekorTimeout = *verifyRekorTimeout
+		ver.SetStrictPolicy(strictPolicy)
 		cpSigner := merkle.NewCheckpointSigner(sig)
 		grpcCfg := vaolgrpc.Config{
 			Addr:    *grpcAddr,
