@@ -5,6 +5,24 @@ All notable changes to VAOL will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.23] - 2026-02-23
+
+### Added
+
+- **gRPC auth regression coverage** — Added auth-required and tenant-isolation bufconn tests for missing/invalid JWT handling, claim tenant forcing, cross-tenant read/proof/export denial, and unauthenticated health behavior.
+- **Trusted auth-context binding for gRPC append** — `AppendRecord` now binds verified JWT issuer/subject/token hash into sealed `auth_context` evidence.
+
+### Changed
+
+- **gRPC auth parity with REST** — gRPC now validates `authorization` metadata using the same JWT verifier/modes (`disabled|optional|required`) and enforces deterministic tenant semantics (`tenant mismatch`, `missing tenant context`) across tenant-scoped RPCs.
+- **gRPC tenant filter behavior** — `ListRecords` and `ExportBundle` now force caller-tenant scoping when the request tenant is empty, and reject explicit cross-tenant filters.
+- **Documentation parity** — Updated architecture, threat model, and API reference docs to describe implemented gRPC behavior and metadata/status-code requirements.
+
+### Fixed
+
+- **Cross-tenant proof/read exposure risk on gRPC** — `GetRecord`, `GetInclusionProof`, `GetProofByID`, and `ExportBundle` now verify underlying record tenant against authenticated caller context before returning evidence.
+- **Release metadata alignment** — Synchronized Python SDK, TypeScript SDK, Helm chart, and API reference to version `0.2.23`.
+
 ## [0.2.22] - 2026-02-23
 
 ### Added
@@ -174,6 +192,7 @@ Initial public release of the Verifiable AI Output Ledger.
 - Startup Merkle rebuild with checkpoint/root validation.
 - Tenant-bound API access with cross-tenant rejection.
 
+[0.2.23]: https://github.com/ogulcanaydogan/Verifiable-AI-Output-Ledger/releases/tag/v0.2.23
 [0.2.22]: https://github.com/ogulcanaydogan/Verifiable-AI-Output-Ledger/releases/tag/v0.2.22
 [0.2.11]: https://github.com/ogulcanaydogan/Verifiable-AI-Output-Ledger/releases/tag/v0.2.11
 [0.2.10]: https://github.com/ogulcanaydogan/Verifiable-AI-Output-Ledger/releases/tag/v0.2.10

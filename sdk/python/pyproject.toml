@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "vaol"
-version = "0.2.22"
+version = "0.2.23"
 description = "Python SDK for the Verifiable AI Output Ledger (VAOL)"
 readme = "README.md"
 license = "Apache-2.0"

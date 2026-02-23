@@ -2,8 +2,8 @@ apiVersion: v2
 name: vaol
 description: Verifiable AI Output Ledger — tamper-evident audit trail for AI/LLM outputs
 type: application
-version: 0.2.22
-appVersion: "0.2.22"
+version: 0.2.23
+appVersion: "0.2.23"
 keywords:
   - ai
   - audit
