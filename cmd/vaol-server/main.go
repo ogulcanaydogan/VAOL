@@ -7,18 +7,23 @@ import (
 	"fmt"
 	"io/fs"
 	"log/slog"
+	"net"
 	"os"
 	"os/signal"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
 	"github.com/ogulcanaydogan/vaol/pkg/api"
+	vaolgrpc "github.com/ogulcanaydogan/vaol/pkg/grpc"
 	"github.com/ogulcanaydogan/vaol/pkg/merkle"
 	"github.com/ogulcanaydogan/vaol/pkg/policy"
 	"github.com/ogulcanaydogan/vaol/pkg/signer"
 	"github.com/ogulcanaydogan/vaol/pkg/store"
+	"github.com/ogulcanaydogan/vaol/pkg/verifier"
 	"github.com/ogulcanaydogan/vaol/web"
+	"google.golang.org/grpc"
 )
 
 // Build-time variables injected via ldflags.
@@ -30,7 +35,8 @@ var (
 
 func main() {
 	var (
-		addr                  = flag.String("addr", ":8080", "server listen address")
+		addr                  = flag.String("addr", ":8080", "HTTP server listen address")
+		grpcAddr              = flag.String("grpc-addr", "", "gRPC server listen address (e.g. :9090); disabled if empty")
 		dsn                   = flag.String("dsn", "", "PostgreSQL connection string")
 		keyPath               = flag.String("key", "", "Ed25519 private key PEM path")
 		signerMode            = flag.String("signer-mode", "ed25519", "signing backend: ed25519, sigstore, kms")
@@ -200,6 +206,21 @@ func main() {
 
 	srv := api.NewServer(cfg, st, sig, verifiers, tree, pol, logger)
 
+	// gRPC server (optional, shares all dependencies with REST server)
+	var grpcServer *vaolgrpc.LedgerServer
+	var grpcSrv *grpc.Server
+	if *grpcAddr != "" {
+		cpMu := &sync.Mutex{}
+		ver := verifier.New(verifiers...)
+		cpSigner := merkle.NewCheckpointSigner(sig)
+		grpcCfg := vaolgrpc.Config{
+			Addr:    *grpcAddr,
+			Version: version,
+		}
+		grpcServer = vaolgrpc.NewLedgerServer(grpcCfg, st, sig, verifiers, tree, pol, ver, cpSigner, cpMu, logger)
+		grpcSrv = vaolgrpc.NewGRPCServer(grpcServer)
+	}
+
 	// Graceful shutdown
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
@@ -211,14 +232,36 @@ func main() {
 		}
 	}()
 
+	if grpcSrv != nil {
+		go func() {
+			lis, err := net.Listen("tcp", *grpcAddr)
+			if err != nil {
+				logger.Error("gRPC listen failed", "addr", *grpcAddr, "error", err)
+				os.Exit(1)
+			}
+			logger.Info("starting gRPC server", "addr", *grpcAddr)
+			if err := grpcSrv.Serve(lis); err != nil {
+				logger.Error("gRPC server failed", "error", err)
+				os.Exit(1)
+			}
+		}()
+	}
+
 	fmt.Fprintf(os.Stderr, "VAOL server %s (%s, %s) listening on %s\n", version, commit, date, *addr)
+	if *grpcAddr != "" {
+		fmt.Fprintf(os.Stderr, "VAOL gRPC server listening on %s\n", *grpcAddr)
+	}
 	<-ctx.Done()
 
+	if grpcSrv != nil {
+		grpcSrv.GracefulStop()
+	}
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10_000_000_000)
 	defer cancel()
 	if err := srv.Shutdown(shutdownCtx); err != nil {
 		logger.Error("shutdown failed", "error", err)
 	}
+	_ = grpcServer
 }
 
 func buildSignerAndVerifiers(

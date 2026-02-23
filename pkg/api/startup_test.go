@@ -320,7 +320,7 @@ func TestServerStartupRejectsInvalidVerificationRevocationsFile(t *testing.T) {
 	if srv.StartupError() == nil {
 		t.Fatal("expected startup error for invalid verification revocations file, got nil")
 	}
-	if !strings.Contains(srv.StartupError().Error(), "loading verification revocations") {
+	if !strings.Contains(srv.StartupError().Error(), "applying verification revocations") {
 		t.Fatalf("unexpected startup error: %v", srv.StartupError())
 	}
 }

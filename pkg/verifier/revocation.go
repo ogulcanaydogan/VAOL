@@ -81,6 +81,15 @@ func LoadRevocationListFile(path string) ([]RevocationRule, error) {
 	return ParseRevocationList(raw)
 }
 
+// SetRevocationsFromFile loads and applies revocation rules from a JSON file.
+func (v *Verifier) SetRevocationsFromFile(path string) error {
+	rules, err := LoadRevocationListFile(path)
+	if err != nil {
+		return err
+	}
+	return v.SetRevocations(rules)
+}
+
 // SetRevocations replaces all revocation rules on the verifier.
 func (v *Verifier) SetRevocations(rules []RevocationRule) error {
 	compiled := make(map[string][]revocationWindow, len(rules))
