@@ -5,6 +5,25 @@ All notable changes to VAOL will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **Persistent Merkle leaf state interface** — Added optional `store.MerkleLeafStore` extension and `StoredMerkleLeaf` model to persist RFC 6962 leaf state.
+- **Startup restore from persisted Merkle leaves** — API startup now attempts to restore tree state from persisted leaves before fallback record traversal rebuild.
+- **Operational readiness docs for v1.0 track** — Added:
+  - `docs/ha-sequencing-model.md`
+  - `docs/dr-playbook.md`
+  - `docs/multi-region-reference.md`
+  - `docs/compliance-operations.md`
+  - `docs/v1-compatibility-contract.md`
+  - `docs/external-audit-readiness.md`
+
+### Changed
+
+- **API/gRPC append path** — REST and gRPC append handlers now persist deterministic Merkle leaf hashes (`leaf_hash = SHA-256(0x00 || record_hash)`) when the backend supports it.
+- **Threat model and architecture docs** — Updated storage and startup integrity sections to reflect persisted Merkle leaf restoration, validation, and fallback behavior.
+
 ## [0.2.25] - 2026-02-23
 
 ### Added
