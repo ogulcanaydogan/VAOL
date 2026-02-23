@@ -2,16 +2,21 @@ package grpc_test
 
 import (
 	"context"
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/base64"
 	"encoding/json"
 	"io"
 	"log/slog"
 	"net"
+	"strings"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/google/uuid"
 	vaolv1 "github.com/ogulcanaydogan/vaol/gen/vaol/v1"
+	"github.com/ogulcanaydogan/vaol/pkg/auth"
 	vaolgrpc "github.com/ogulcanaydogan/vaol/pkg/grpc"
 	"github.com/ogulcanaydogan/vaol/pkg/merkle"
 	"github.com/ogulcanaydogan/vaol/pkg/policy"
@@ -20,8 +25,10 @@ import (
 	"github.com/ogulcanaydogan/vaol/pkg/store"
 	"github.com/ogulcanaydogan/vaol/pkg/verifier"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/metadata"
+	"google.golang.org/grpc/status"
 	"google.golang.org/grpc/test/bufconn"
 )
 
@@ -37,8 +44,18 @@ type testEnv struct {
 	srv    *grpc.Server
 }
 
+type testEnvOptions struct {
+	authMode     auth.Mode
+	authVerifier *auth.Verifier
+}
+
 // newTestEnv sets up an in-process gRPC server + client over bufconn.
 func newTestEnv(t *testing.T) *testEnv {
+	t.Helper()
+	return newTestEnvWithOptions(t, testEnvOptions{})
+}
+
+func newTestEnvWithOptions(t *testing.T, opts testEnvOptions) *testEnv {
 	t.Helper()
 
 	ms := store.NewMemoryStore()
@@ -58,10 +75,13 @@ func newTestEnv(t *testing.T) *testEnv {
 		Addr:    ":0",
 		Version: "test",
 	}
+	if opts.authMode == "" {
+		opts.authMode = auth.ModeDisabled
+	}
 
 	ls := vaolgrpc.NewLedgerServer(
 		cfg, ms, sig, []signer.Verifier{ver}, tree,
-		&policy.NoopEngine{}, verifierObj, cpSigner, cpMu, logger,
+		&policy.NoopEngine{}, opts.authMode, opts.authVerifier, verifierObj, cpSigner, cpMu, logger,
 	)
 	srv := vaolgrpc.NewGRPCServer(ls)
 
@@ -103,22 +123,55 @@ func newTestEnv(t *testing.T) *testEnv {
 	}
 }
 
+func newRequiredAuthTestEnv(t *testing.T, secret string) *testEnv {
+	t.Helper()
+	authVerifier, err := auth.NewVerifier(auth.Config{
+		Mode:        auth.ModeRequired,
+		HS256Secret: secret,
+	})
+	if err != nil {
+		t.Fatalf("new auth verifier: %v", err)
+	}
+	return newTestEnvWithOptions(t, testEnvOptions{
+		authMode:     auth.ModeRequired,
+		authVerifier: authVerifier,
+	})
+}
+
 // ctxWithTenant returns a context with the tenant metadata header set.
 func ctxWithTenant(tenant string) context.Context {
 	md := metadata.Pairs("x-vaol-tenant-id", tenant)
 	return metadata.NewOutgoingContext(context.Background(), md)
 }
 
+func ctxWithAuthToken(token string) context.Context {
+	md := metadata.Pairs("authorization", "Bearer "+token)
+	return metadata.NewOutgoingContext(context.Background(), md)
+}
+
+func ctxWithTenantAndAuth(tenant, token string) context.Context {
+	md := metadata.Pairs(
+		"x-vaol-tenant-id", tenant,
+		"authorization", "Bearer "+token,
+	)
+	return metadata.NewOutgoingContext(context.Background(), md)
+}
+
 // mustBuildPayload serializes a minimal valid DecisionRecord JSON.
 func mustBuildPayload(t *testing.T) []byte {
+	t.Helper()
+	return mustBuildPayloadForIdentity(t, "test-tenant", "grpc-test")
+}
+
+func mustBuildPayloadForIdentity(t *testing.T, tenant, subject string) []byte {
 	t.Helper()
 	rec := record.DecisionRecord{
 		SchemaVersion: record.SchemaVersion,
 		RequestID:     uuid.New(),
 		Timestamp:     time.Now().UTC(),
 		Identity: record.Identity{
-			TenantID:    "test-tenant",
-			Subject:     "grpc-test",
+			TenantID:    tenant,
+			Subject:     subject,
 			SubjectType: "user",
 		},
 		Model: record.Model{
@@ -574,5 +627,281 @@ func TestHashChainIntegrity(t *testing.T) {
 			t.Errorf("duplicate record hash: %s", r.RecordHash)
 		}
 		hashes[r.RecordHash] = true
+	}
+}
+
+func TestAuthRequiredDenyMissingToken(t *testing.T) {
+	env := newRequiredAuthTestEnv(t, "test-secret")
+	ctx := ctxWithTenant("tenant-a")
+
+	_, err := env.client.AppendRecord(ctx, &vaolv1.AppendRecordRequest{
+		RawPayload: mustBuildPayloadForIdentity(t, "tenant-a", "svc-a"),
+	})
+	assertStatusCodeAndMessage(t, err, codes.Unauthenticated, "authentication failed")
+}
+
+func TestAuthRequiredDenyInvalidToken(t *testing.T) {
+	env := newRequiredAuthTestEnv(t, "test-secret")
+	ctx := ctxWithTenantAndAuth("tenant-a", "invalid.jwt.token")
+
+	_, err := env.client.AppendRecord(ctx, &vaolv1.AppendRecordRequest{
+		RawPayload: mustBuildPayloadForIdentity(t, "tenant-a", "svc-a"),
+	})
+	assertStatusCodeAndMessage(t, err, codes.Unauthenticated, "authentication failed")
+}
+
+func TestAuthRequiredAllowValidToken(t *testing.T) {
+	env := newRequiredAuthTestEnv(t, "test-secret")
+	token := mustMakeHS256Token(t, map[string]any{
+		"sub":       "svc-a",
+		"tenant_id": "tenant-a",
+		"exp":       time.Now().Add(15 * time.Minute).Unix(),
+	}, "test-secret")
+
+	resp, err := env.client.AppendRecord(ctxWithAuthToken(token), &vaolv1.AppendRecordRequest{
+		RawPayload: mustBuildPayloadForIdentity(t, "", ""),
+	})
+	if err != nil {
+		t.Fatalf("AppendRecord: %v", err)
+	}
+
+	reqID, err := uuid.Parse(resp.RequestId)
+	if err != nil {
+		t.Fatalf("parse request id: %v", err)
+	}
+	stored, err := env.store.GetByRequestID(context.Background(), reqID)
+	if err != nil {
+		t.Fatalf("load stored record: %v", err)
+	}
+	payload, err := signer.ExtractPayload(stored.Envelope)
+	if err != nil {
+		t.Fatalf("extract payload: %v", err)
+	}
+	var rec record.DecisionRecord
+	if err := json.Unmarshal(payload, &rec); err != nil {
+		t.Fatalf("unmarshal record: %v", err)
+	}
+	if rec.Identity.TenantID != "tenant-a" {
+		t.Fatalf("expected tenant-a, got %q", rec.Identity.TenantID)
+	}
+	if rec.Identity.Subject != "svc-a" {
+		t.Fatalf("expected svc-a subject, got %q", rec.Identity.Subject)
+	}
+	if rec.AuthContext == nil {
+		t.Fatal("expected auth_context to be populated")
+	}
+	if rec.AuthContext.Subject != "svc-a" {
+		t.Fatalf("expected auth_context.subject=svc-a, got %q", rec.AuthContext.Subject)
+	}
+	if rec.AuthContext.TokenHash == "" {
+		t.Fatal("expected auth_context.token_hash")
+	}
+}
+
+func TestAppendRecordDenyTenantMismatchWithClaims(t *testing.T) {
+	env := newRequiredAuthTestEnv(t, "test-secret")
+	token := mustMakeHS256Token(t, map[string]any{
+		"sub":       "svc-a",
+		"tenant_id": "tenant-a",
+		"exp":       time.Now().Add(15 * time.Minute).Unix(),
+	}, "test-secret")
+
+	_, err := env.client.AppendRecord(ctxWithAuthToken(token), &vaolv1.AppendRecordRequest{
+		RawPayload: mustBuildPayloadForIdentity(t, "tenant-b", "svc-a"),
+	})
+	assertStatusCodeAndMessage(t, err, codes.PermissionDenied, "tenant mismatch")
+}
+
+func TestAppendRecordDenySubjectMismatchWithClaims(t *testing.T) {
+	env := newRequiredAuthTestEnv(t, "test-secret")
+	token := mustMakeHS256Token(t, map[string]any{
+		"sub":       "svc-a",
+		"tenant_id": "tenant-a",
+		"exp":       time.Now().Add(15 * time.Minute).Unix(),
+	}, "test-secret")
+
+	_, err := env.client.AppendRecord(ctxWithAuthToken(token), &vaolv1.AppendRecordRequest{
+		RawPayload: mustBuildPayloadForIdentity(t, "tenant-a", "svc-b"),
+	})
+	assertStatusCodeAndMessage(t, err, codes.PermissionDenied, "subject mismatch")
+}
+
+func TestGetRecordDenyCrossTenant(t *testing.T) {
+	env := newRequiredAuthTestEnv(t, "test-secret")
+	tokenA := mustMakeHS256Token(t, map[string]any{
+		"sub":       "svc-a",
+		"tenant_id": "tenant-a",
+		"exp":       time.Now().Add(15 * time.Minute).Unix(),
+	}, "test-secret")
+	tokenB := mustMakeHS256Token(t, map[string]any{
+		"sub":       "svc-b",
+		"tenant_id": "tenant-b",
+		"exp":       time.Now().Add(15 * time.Minute).Unix(),
+	}, "test-secret")
+
+	appendResp, err := env.client.AppendRecord(ctxWithAuthToken(tokenA), &vaolv1.AppendRecordRequest{
+		RawPayload: mustBuildPayloadForIdentity(t, "tenant-a", "svc-a"),
+	})
+	if err != nil {
+		t.Fatalf("AppendRecord: %v", err)
+	}
+
+	_, err = env.client.GetRecord(ctxWithAuthToken(tokenB), &vaolv1.GetRecordRequest{
+		RequestId: appendResp.RequestId,
+	})
+	assertStatusCodeAndMessage(t, err, codes.PermissionDenied, "tenant mismatch")
+}
+
+func TestListRecordsForcedClaimTenantWhenEmpty(t *testing.T) {
+	env := newRequiredAuthTestEnv(t, "test-secret")
+	tokenA := mustMakeHS256Token(t, map[string]any{
+		"sub":       "svc-a",
+		"tenant_id": "tenant-a",
+		"exp":       time.Now().Add(15 * time.Minute).Unix(),
+	}, "test-secret")
+	tokenB := mustMakeHS256Token(t, map[string]any{
+		"sub":       "svc-b",
+		"tenant_id": "tenant-b",
+		"exp":       time.Now().Add(15 * time.Minute).Unix(),
+	}, "test-secret")
+
+	if _, err := env.client.AppendRecord(ctxWithAuthToken(tokenA), &vaolv1.AppendRecordRequest{
+		RawPayload: mustBuildPayloadForIdentity(t, "tenant-a", "svc-a"),
+	}); err != nil {
+		t.Fatalf("append tenant-a: %v", err)
+	}
+	if _, err := env.client.AppendRecord(ctxWithAuthToken(tokenB), &vaolv1.AppendRecordRequest{
+		RawPayload: mustBuildPayloadForIdentity(t, "tenant-b", "svc-b"),
+	}); err != nil {
+		t.Fatalf("append tenant-b: %v", err)
+	}
+
+	stream, err := env.client.ListRecords(ctxWithAuthToken(tokenA), &vaolv1.ListRecordsRequest{
+		Limit: 10,
+	})
+	if err != nil {
+		t.Fatalf("ListRecords: %v", err)
+	}
+
+	var records []*vaolv1.DecisionRecordEnvelope
+	for {
+		rec, recvErr := stream.Recv()
+		if recvErr == io.EOF {
+			break
+		}
+		if recvErr != nil {
+			t.Fatalf("stream recv: %v", recvErr)
+		}
+		records = append(records, rec)
+	}
+	if len(records) != 1 {
+		t.Fatalf("expected exactly one tenant-scoped record, got %d", len(records))
+	}
+	if records[0].TenantId != "tenant-a" {
+		t.Fatalf("expected tenant-a record, got %q", records[0].TenantId)
+	}
+}
+
+func TestExportBundleDenyCrossTenant(t *testing.T) {
+	env := newRequiredAuthTestEnv(t, "test-secret")
+	tokenA := mustMakeHS256Token(t, map[string]any{
+		"sub":       "svc-a",
+		"tenant_id": "tenant-a",
+		"exp":       time.Now().Add(15 * time.Minute).Unix(),
+	}, "test-secret")
+	tokenB := mustMakeHS256Token(t, map[string]any{
+		"sub":       "svc-b",
+		"tenant_id": "tenant-b",
+		"exp":       time.Now().Add(15 * time.Minute).Unix(),
+	}, "test-secret")
+
+	if _, err := env.client.AppendRecord(ctxWithAuthToken(tokenA), &vaolv1.AppendRecordRequest{
+		RawPayload: mustBuildPayloadForIdentity(t, "tenant-a", "svc-a"),
+	}); err != nil {
+		t.Fatalf("append tenant-a: %v", err)
+	}
+
+	stream, err := env.client.ExportBundle(ctxWithAuthToken(tokenB), &vaolv1.ExportBundleRequest{
+		TenantId: "tenant-a",
+	})
+	if err == nil {
+		_, err = stream.Recv()
+	}
+	assertStatusCodeAndMessage(t, err, codes.PermissionDenied, "tenant mismatch")
+}
+
+func TestGetProofByIDDenyCrossTenant(t *testing.T) {
+	env := newRequiredAuthTestEnv(t, "test-secret")
+	tokenA := mustMakeHS256Token(t, map[string]any{
+		"sub":       "svc-a",
+		"tenant_id": "tenant-a",
+		"exp":       time.Now().Add(15 * time.Minute).Unix(),
+	}, "test-secret")
+	tokenB := mustMakeHS256Token(t, map[string]any{
+		"sub":       "svc-b",
+		"tenant_id": "tenant-b",
+		"exp":       time.Now().Add(15 * time.Minute).Unix(),
+	}, "test-secret")
+
+	appendResp, err := env.client.AppendRecord(ctxWithAuthToken(tokenA), &vaolv1.AppendRecordRequest{
+		RawPayload: mustBuildPayloadForIdentity(t, "tenant-a", "svc-a"),
+	})
+	if err != nil {
+		t.Fatalf("append tenant-a: %v", err)
+	}
+
+	_, err = env.client.GetProofByID(ctxWithAuthToken(tokenB), &vaolv1.GetProofByIDRequest{
+		ProofId: "proof:" + appendResp.RequestId,
+	})
+	assertStatusCodeAndMessage(t, err, codes.PermissionDenied, "tenant mismatch")
+}
+
+func TestHealthAllowedWithoutAuthWhenAuthRequired(t *testing.T) {
+	env := newRequiredAuthTestEnv(t, "test-secret")
+	resp, err := env.client.Health(context.Background(), &vaolv1.HealthRequest{})
+	if err != nil {
+		t.Fatalf("Health RPC: %v", err)
+	}
+	if resp.Status != "ok" {
+		t.Fatalf("expected ok status, got %q", resp.Status)
+	}
+}
+
+func mustMakeHS256Token(t *testing.T, claims map[string]any, secret string) string {
+	t.Helper()
+	header := map[string]any{
+		"alg": "HS256",
+		"typ": "JWT",
+	}
+	headerJSON, err := json.Marshal(header)
+	if err != nil {
+		t.Fatalf("marshal header: %v", err)
+	}
+	claimsJSON, err := json.Marshal(claims)
+	if err != nil {
+		t.Fatalf("marshal claims: %v", err)
+	}
+
+	signingInput := base64.RawURLEncoding.EncodeToString(headerJSON) + "." + base64.RawURLEncoding.EncodeToString(claimsJSON)
+	mac := hmac.New(sha256.New, []byte(secret))
+	_, _ = mac.Write([]byte(signingInput))
+	signature := mac.Sum(nil)
+	return signingInput + "." + base64.RawURLEncoding.EncodeToString(signature)
+}
+
+func assertStatusCodeAndMessage(t *testing.T, err error, wantCode codes.Code, wantMsgFragment string) {
+	t.Helper()
+	if err == nil {
+		t.Fatalf("expected gRPC error code=%s", wantCode.String())
+	}
+	st, ok := status.FromError(err)
+	if !ok {
+		t.Fatalf("expected gRPC status error, got: %v", err)
+	}
+	if st.Code() != wantCode {
+		t.Fatalf("expected code=%s got=%s (msg=%q)", wantCode.String(), st.Code().String(), st.Message())
+	}
+	if wantMsgFragment != "" && !strings.Contains(st.Message(), wantMsgFragment) {
+		t.Fatalf("expected message containing %q, got %q", wantMsgFragment, st.Message())
 	}
 }

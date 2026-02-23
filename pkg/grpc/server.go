@@ -12,6 +12,7 @@ import (
 
 	"github.com/google/uuid"
 	vaolv1 "github.com/ogulcanaydogan/vaol/gen/vaol/v1"
+	"github.com/ogulcanaydogan/vaol/pkg/auth"
 	vaolcrypto "github.com/ogulcanaydogan/vaol/pkg/crypto"
 	"github.com/ogulcanaydogan/vaol/pkg/export"
 	"github.com/ogulcanaydogan/vaol/pkg/merkle"
@@ -31,6 +32,10 @@ import (
 const (
 	// tenantMetadataKey is the gRPC metadata key for tenant context.
 	tenantMetadataKey = "x-vaol-tenant-id"
+	// legacyTenantMetadataKey is the legacy tenant metadata key.
+	legacyTenantMetadataKey = "x-tenant-id"
+	// authorizationMetadataKey is the metadata key for Bearer auth.
+	authorizationMetadataKey = "authorization"
 
 	// exportChunkSize is the maximum bytes per ExportBundle stream chunk.
 	exportChunkSize = 64 * 1024
@@ -45,6 +50,8 @@ type LedgerServer struct {
 	verifiers        []signer.Verifier
 	tree             *merkle.Tree
 	policy           policy.Engine
+	authMode         auth.Mode
+	authVerifier     *auth.Verifier
 	verifier         *verifier.Verifier
 	checkpointSigner *merkle.CheckpointSigner
 	checkpointMu     *sync.Mutex
@@ -60,6 +67,8 @@ func NewLedgerServer(
 	vers []signer.Verifier,
 	tree *merkle.Tree,
 	pol policy.Engine,
+	authMode auth.Mode,
+	authVerifier *auth.Verifier,
 	ver *verifier.Verifier,
 	cpSigner *merkle.CheckpointSigner,
 	cpMu *sync.Mutex,
@@ -74,6 +83,8 @@ func NewLedgerServer(
 		verifiers:        vers,
 		tree:             tree,
 		policy:           pol,
+		authMode:         authMode,
+		authVerifier:     authVerifier,
 		verifier:         ver,
 		checkpointSigner: cpSigner,
 		checkpointMu:     cpMu,
@@ -96,18 +107,74 @@ func Serve(srv *grpc.Server, lis net.Listener) error {
 	return srv.Serve(lis)
 }
 
-// --- Tenant context extraction ---
+// --- Auth and tenant context extraction ---
 
-func tenantFromContext(ctx context.Context) string {
+func authorizationFromContext(ctx context.Context) string {
 	md, ok := metadata.FromIncomingContext(ctx)
 	if !ok {
 		return ""
 	}
-	vals := md.Get(tenantMetadataKey)
+	vals := md.Get(authorizationMetadataKey)
 	if len(vals) == 0 {
 		return ""
 	}
 	return strings.TrimSpace(vals[0])
+}
+
+func tenantContextFromContextValidated(ctx context.Context) (string, error) {
+	md, ok := metadata.FromIncomingContext(ctx)
+	if !ok {
+		return "", nil
+	}
+
+	vaolTenant := ""
+	if vals := md.Get(tenantMetadataKey); len(vals) > 0 {
+		vaolTenant = strings.TrimSpace(vals[0])
+	}
+	legacyTenant := ""
+	if vals := md.Get(legacyTenantMetadataKey); len(vals) > 0 {
+		legacyTenant = strings.TrimSpace(vals[0])
+	}
+
+	if vaolTenant != "" && legacyTenant != "" && vaolTenant != legacyTenant {
+		return "", status.Error(codes.PermissionDenied, "tenant mismatch")
+	}
+	if vaolTenant != "" {
+		return vaolTenant, nil
+	}
+	if legacyTenant != "" {
+		return legacyTenant, nil
+	}
+	return "", nil
+}
+
+func (s *LedgerServer) authenticateContext(ctx context.Context) (*auth.Claims, error) {
+	if s.authVerifier == nil || s.authMode == auth.ModeDisabled {
+		return nil, nil
+	}
+	claims, err := s.authVerifier.VerifyAuthorization(ctx, authorizationFromContext(ctx))
+	if err != nil {
+		return nil, status.Errorf(codes.Unauthenticated, "authentication failed: %v", err)
+	}
+	return claims, nil
+}
+
+func effectiveTenantContext(ctx context.Context, claims *auth.Claims) (string, error) {
+	tenantID, err := tenantContextFromContextValidated(ctx)
+	if err != nil {
+		return "", err
+	}
+
+	if claims != nil && claims.TenantID != "" {
+		if tenantID != "" && tenantID != claims.TenantID {
+			return "", status.Error(codes.PermissionDenied, "tenant mismatch")
+		}
+		return claims.TenantID, nil
+	}
+	if tenantID == "" {
+		return "", status.Error(codes.PermissionDenied, "missing tenant context")
+	}
+	return tenantID, nil
 }
 
 // --- RPC implementations ---
@@ -123,6 +190,11 @@ func (s *LedgerServer) Health(ctx context.Context, _ *vaolv1.HealthRequest) (*va
 }
 
 func (s *LedgerServer) AppendRecord(ctx context.Context, req *vaolv1.AppendRecordRequest) (*vaolv1.AppendRecordResponse, error) {
+	claims, err := s.authenticateContext(ctx)
+	if err != nil {
+		return nil, err
+	}
+
 	var rec record.DecisionRecord
 
 	// Determine payload source
@@ -156,14 +228,48 @@ func (s *LedgerServer) AppendRecord(ctx context.Context, req *vaolv1.AppendRecor
 		rec.Timestamp = time.Now().UTC()
 	}
 
-	// Tenant from gRPC metadata
-	tenantHeader := tenantFromContext(ctx)
+	tenantHeader, err := tenantContextFromContextValidated(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	if claims != nil {
+		rec.AuthContext = &record.AuthContext{
+			Issuer:        claims.Issuer,
+			Subject:       claims.Subject,
+			TokenHash:     claims.TokenHash,
+			Source:        "jwt",
+			Authenticated: true,
+		}
+
+		if claims.TenantID != "" {
+			if tenantHeader != "" && tenantHeader != claims.TenantID {
+				return nil, status.Error(codes.PermissionDenied, "tenant mismatch")
+			}
+			if rec.Identity.TenantID == "" {
+				rec.Identity.TenantID = claims.TenantID
+			} else if rec.Identity.TenantID != claims.TenantID {
+				return nil, status.Error(codes.PermissionDenied, "tenant mismatch")
+			}
+		}
+
+		if claims.Subject != "" {
+			if rec.Identity.Subject == "" {
+				rec.Identity.Subject = claims.Subject
+			} else if rec.Identity.Subject != claims.Subject {
+				return nil, status.Error(codes.PermissionDenied, "subject mismatch")
+			}
+		}
+	}
 	if tenantHeader != "" {
 		if rec.Identity.TenantID == "" {
 			rec.Identity.TenantID = tenantHeader
 		} else if rec.Identity.TenantID != tenantHeader {
-			return nil, status.Error(codes.PermissionDenied, "tenant mismatch between payload and gRPC metadata")
+			return nil, status.Error(codes.PermissionDenied, "tenant mismatch")
 		}
+	}
+	if rec.Identity.TenantID == "" {
+		return nil, status.Error(codes.PermissionDenied, "missing tenant context")
 	}
 
 	// Policy evaluation
@@ -171,11 +277,11 @@ func (s *LedgerServer) AppendRecord(ctx context.Context, req *vaolv1.AppendRecor
 		policyInput := &policy.Input{
 			TenantID:      rec.Identity.TenantID,
 			SubjectType:   rec.Identity.SubjectType,
-			ModelProvider:  rec.Model.Provider,
-			ModelName:      rec.Model.Name,
-			OutputMode:     string(rec.Output.Mode),
-			HasRAGContext:  rec.RAGContext != nil,
-			HasCitations:   rec.RAGContext != nil && len(rec.RAGContext.CitationHashes) > 0,
+			ModelProvider: rec.Model.Provider,
+			ModelName:     rec.Model.Name,
+			OutputMode:    string(rec.Output.Mode),
+			HasRAGContext: rec.RAGContext != nil,
+			HasCitations:  rec.RAGContext != nil && len(rec.RAGContext.CitationHashes) > 0,
 		}
 
 		decision, err := s.policy.Evaluate(ctx, policyInput)
@@ -290,12 +396,16 @@ func (s *LedgerServer) AppendRecord(ctx context.Context, req *vaolv1.AppendRecor
 }
 
 func (s *LedgerServer) GetRecord(ctx context.Context, req *vaolv1.GetRecordRequest) (*vaolv1.GetRecordResponse, error) {
+	claims, err := s.authenticateContext(ctx)
+	if err != nil {
+		return nil, err
+	}
+
 	if req.RequestId == "" && req.SequenceNumber == 0 {
 		return nil, status.Error(codes.InvalidArgument, "request_id or sequence_number is required")
 	}
 
 	var stored *store.StoredRecord
-	var err error
 
 	if req.RequestId != "" {
 		reqID, parseErr := uuid.Parse(req.RequestId)
@@ -314,6 +424,14 @@ func (s *LedgerServer) GetRecord(ctx context.Context, req *vaolv1.GetRecordReque
 		return nil, status.Errorf(codes.Internal, "retrieving record: %v", err)
 	}
 
+	callerTenant, err := effectiveTenantContext(ctx, claims)
+	if err != nil {
+		return nil, err
+	}
+	if stored.TenantID == "" || stored.TenantID != callerTenant {
+		return nil, status.Error(codes.PermissionDenied, "tenant mismatch")
+	}
+
 	return &vaolv1.GetRecordResponse{
 		Record: goStoredRecordToProto(stored),
 	}, nil
@@ -321,9 +439,20 @@ func (s *LedgerServer) GetRecord(ctx context.Context, req *vaolv1.GetRecordReque
 
 func (s *LedgerServer) ListRecords(req *vaolv1.ListRecordsRequest, stream grpc.ServerStreamingServer[vaolv1.DecisionRecordEnvelope]) error {
 	ctx := stream.Context()
+	claims, err := s.authenticateContext(ctx)
+	if err != nil {
+		return err
+	}
+	callerTenant, err := effectiveTenantContext(ctx, claims)
+	if err != nil {
+		return err
+	}
+	if req.TenantId != "" && req.TenantId != callerTenant {
+		return status.Error(codes.PermissionDenied, "tenant mismatch")
+	}
 
 	filter := store.ListFilter{
-		TenantID: req.TenantId,
+		TenantID: callerTenant,
 		Limit:    int(req.Limit),
 	}
 	if filter.Limit <= 0 {
@@ -357,6 +486,11 @@ func (s *LedgerServer) ListRecords(req *vaolv1.ListRecordsRequest, stream grpc.S
 }
 
 func (s *LedgerServer) GetInclusionProof(ctx context.Context, req *vaolv1.GetInclusionProofRequest) (*vaolv1.InclusionProofResponse, error) {
+	claims, err := s.authenticateContext(ctx)
+	if err != nil {
+		return nil, err
+	}
+
 	if req.RequestId == "" {
 		return nil, status.Error(codes.InvalidArgument, "request_id is required")
 	}
@@ -372,6 +506,13 @@ func (s *LedgerServer) GetInclusionProof(ctx context.Context, req *vaolv1.GetInc
 			return nil, status.Error(codes.NotFound, "record not found")
 		}
 		return nil, status.Errorf(codes.Internal, "retrieving record: %v", err)
+	}
+	callerTenant, err := effectiveTenantContext(ctx, claims)
+	if err != nil {
+		return nil, err
+	}
+	if stored.TenantID == "" || stored.TenantID != callerTenant {
+		return nil, status.Error(codes.PermissionDenied, "tenant mismatch")
 	}
 
 	// Try stored proof first
@@ -399,6 +540,11 @@ func (s *LedgerServer) GetInclusionProof(ctx context.Context, req *vaolv1.GetInc
 }
 
 func (s *LedgerServer) GetProofByID(ctx context.Context, req *vaolv1.GetProofByIDRequest) (*vaolv1.InclusionProofResponse, error) {
+	claims, err := s.authenticateContext(ctx)
+	if err != nil {
+		return nil, err
+	}
+
 	if req.ProofId == "" {
 		return nil, status.Error(codes.InvalidArgument, "proof_id is required")
 	}
@@ -417,6 +563,13 @@ func (s *LedgerServer) GetProofByID(ctx context.Context, req *vaolv1.GetProofByI
 			if recErr != nil {
 				return nil, status.Error(codes.NotFound, "record for proof not found")
 			}
+			callerTenant, tenantErr := effectiveTenantContext(ctx, claims)
+			if tenantErr != nil {
+				return nil, tenantErr
+			}
+			if stored.TenantID == "" || stored.TenantID != callerTenant {
+				return nil, status.Error(codes.PermissionDenied, "tenant mismatch")
+			}
 
 			proof, liveErr := s.tree.InclusionProof(stored.MerkleLeafIndex, s.tree.Size())
 			if liveErr != nil {
@@ -429,6 +582,20 @@ func (s *LedgerServer) GetProofByID(ctx context.Context, req *vaolv1.GetProofByI
 		}
 		return nil, status.Errorf(codes.Internal, "retrieving proof: %v", err)
 	}
+	stored, err := s.store.GetByRequestID(ctx, storedProof.RequestID)
+	if err != nil {
+		if err == store.ErrNotFound {
+			return nil, status.Error(codes.NotFound, "record for proof not found")
+		}
+		return nil, status.Errorf(codes.Internal, "retrieving record for proof: %v", err)
+	}
+	callerTenant, err := effectiveTenantContext(ctx, claims)
+	if err != nil {
+		return nil, err
+	}
+	if stored.TenantID == "" || stored.TenantID != callerTenant {
+		return nil, status.Error(codes.PermissionDenied, "tenant mismatch")
+	}
 
 	return &vaolv1.InclusionProofResponse{
 		Proof: goProofToProto(storedProof.Proof),
@@ -436,6 +603,10 @@ func (s *LedgerServer) GetProofByID(ctx context.Context, req *vaolv1.GetProofByI
 }
 
 func (s *LedgerServer) GetConsistencyProof(ctx context.Context, req *vaolv1.GetConsistencyProofRequest) (*vaolv1.ConsistencyProofResponse, error) {
+	if _, err := s.authenticateContext(ctx); err != nil {
+		return nil, err
+	}
+
 	if req.FirstTreeSize < 0 || req.SecondTreeSize < 0 {
 		return nil, status.Error(codes.InvalidArgument, "tree sizes must be non-negative")
 	}
@@ -451,6 +622,10 @@ func (s *LedgerServer) GetConsistencyProof(ctx context.Context, req *vaolv1.GetC
 }
 
 func (s *LedgerServer) GetCheckpoint(ctx context.Context, _ *vaolv1.GetCheckpointRequest) (*vaolv1.SignedCheckpoint, error) {
+	if _, err := s.authenticateContext(ctx); err != nil {
+		return nil, err
+	}
+
 	checkpoint, err := s.store.GetLatestCheckpoint(ctx)
 	if err == nil {
 		return goCheckpointToProto(checkpoint.Checkpoint), nil
@@ -467,6 +642,10 @@ func (s *LedgerServer) GetCheckpoint(ctx context.Context, _ *vaolv1.GetCheckpoin
 }
 
 func (s *LedgerServer) VerifyRecord(ctx context.Context, req *vaolv1.VerifyRecordRequest) (*vaolv1.VerificationResult, error) {
+	if _, err := s.authenticateContext(ctx); err != nil {
+		return nil, err
+	}
+
 	if req.Envelope == nil {
 		return nil, status.Error(codes.InvalidArgument, "envelope is required")
 	}
@@ -497,9 +676,20 @@ func (s *LedgerServer) VerifyRecord(ctx context.Context, req *vaolv1.VerifyRecor
 
 func (s *LedgerServer) ExportBundle(req *vaolv1.ExportBundleRequest, stream grpc.ServerStreamingServer[vaolv1.BundleChunk]) error {
 	ctx := stream.Context()
+	claims, err := s.authenticateContext(ctx)
+	if err != nil {
+		return err
+	}
+	callerTenant, err := effectiveTenantContext(ctx, claims)
+	if err != nil {
+		return err
+	}
+	if req.TenantId != "" && req.TenantId != callerTenant {
+		return status.Error(codes.PermissionDenied, "tenant mismatch")
+	}
 
 	filter := store.ListFilter{
-		TenantID: req.TenantId,
+		TenantID: callerTenant,
 		Limit:    1000,
 	}
 	if req.After != nil {
@@ -515,7 +705,7 @@ func (s *LedgerServer) ExportBundle(req *vaolv1.ExportBundleRequest, stream grpc
 	}
 
 	bundleFilter := export.BundleFilter{
-		TenantID: req.TenantId,
+		TenantID: callerTenant,
 	}
 	bundle := export.NewBundle(bundleFilter)
 

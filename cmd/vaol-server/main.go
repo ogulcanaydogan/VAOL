@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/ogulcanaydogan/vaol/pkg/api"
+	"github.com/ogulcanaydogan/vaol/pkg/auth"
 	vaolgrpc "github.com/ogulcanaydogan/vaol/pkg/grpc"
 	"github.com/ogulcanaydogan/vaol/pkg/merkle"
 	"github.com/ogulcanaydogan/vaol/pkg/policy"
@@ -210,6 +211,27 @@ func main() {
 	var grpcServer *vaolgrpc.LedgerServer
 	var grpcSrv *grpc.Server
 	if *grpcAddr != "" {
+		grpcAuthMode, err := auth.ParseMode(*authMode)
+		if err != nil {
+			logger.Error("invalid auth mode for gRPC server", "auth_mode", *authMode, "error", err)
+			os.Exit(1)
+		}
+		grpcAuthVerifier, err := auth.NewVerifier(auth.Config{
+			Mode:         grpcAuthMode,
+			Issuer:       *jwtIssuer,
+			Audience:     *jwtAudience,
+			TenantClaim:  *jwtTenantClaim,
+			SubjectClaim: *jwtSubjectClaim,
+			JWKSFile:     *jwksFile,
+			JWKSURL:      *jwksURL,
+			HS256Secret:  *jwtHS256Secret,
+			ClockSkew:    *jwtClockSkew,
+		})
+		if err != nil {
+			logger.Error("failed to initialize gRPC auth verifier", "error", err)
+			os.Exit(1)
+		}
+
 		cpMu := &sync.Mutex{}
 		ver := verifier.New(verifiers...)
 		cpSigner := merkle.NewCheckpointSigner(sig)
@@ -217,7 +239,7 @@ func main() {
 			Addr:    *grpcAddr,
 			Version: version,
 		}
-		grpcServer = vaolgrpc.NewLedgerServer(grpcCfg, st, sig, verifiers, tree, pol, ver, cpSigner, cpMu, logger)
+		grpcServer = vaolgrpc.NewLedgerServer(grpcCfg, st, sig, verifiers, tree, pol, grpcAuthMode, grpcAuthVerifier, ver, cpSigner, cpMu, logger)
 		grpcSrv = vaolgrpc.NewGRPCServer(grpcServer)
 	}
 
