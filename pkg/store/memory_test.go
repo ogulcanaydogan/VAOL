@@ -278,6 +278,57 @@ func TestMemoryStoreCheckpointRoundTrip(t *testing.T) {
 	}
 }
 
+func TestMemoryStoreMerkleLeafRoundTrip(t *testing.T) {
+	ctx := context.Background()
+	s := NewMemoryStore()
+
+	reqID := uuid.New()
+	if err := s.SaveMerkleLeaf(ctx, &StoredMerkleLeaf{
+		LeafIndex:      0,
+		SequenceNumber: 0,
+		RequestID:      reqID,
+		RecordHash:     "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+		LeafHash:       "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+	}); err != nil {
+		t.Fatalf("SaveMerkleLeaf: %v", err)
+	}
+
+	count, err := s.CountMerkleLeaves(ctx)
+	if err != nil {
+		t.Fatalf("CountMerkleLeaves: %v", err)
+	}
+	if count != 1 {
+		t.Fatalf("expected merkle leaf count 1, got %d", count)
+	}
+
+	leaves, err := s.ListMerkleLeaves(ctx, -1, 10)
+	if err != nil {
+		t.Fatalf("ListMerkleLeaves: %v", err)
+	}
+	if len(leaves) != 1 {
+		t.Fatalf("expected one leaf, got %d", len(leaves))
+	}
+	if leaves[0].RequestID != reqID {
+		t.Fatalf("request id mismatch: got %s want %s", leaves[0].RequestID, reqID)
+	}
+}
+
+func TestMemoryStoreMerkleLeafRejectsGap(t *testing.T) {
+	ctx := context.Background()
+	s := NewMemoryStore()
+
+	err := s.SaveMerkleLeaf(ctx, &StoredMerkleLeaf{
+		LeafIndex:      2,
+		SequenceNumber: 2,
+		RequestID:      uuid.New(),
+		RecordHash:     "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+		LeafHash:       "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+	})
+	if err == nil {
+		t.Fatal("expected merkle leaf gap error, got nil")
+	}
+}
+
 func TestMemoryStoreEncryptedPayloadLifecycle(t *testing.T) {
 	ctx := context.Background()
 	s := NewMemoryStore()

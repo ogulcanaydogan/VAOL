@@ -15,6 +15,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/ogulcanaydogan/vaol/pkg/api"
+	vaolcrypto "github.com/ogulcanaydogan/vaol/pkg/crypto"
 	"github.com/ogulcanaydogan/vaol/pkg/merkle"
 	"github.com/ogulcanaydogan/vaol/pkg/signer"
 	"github.com/ogulcanaydogan/vaol/pkg/store"
@@ -24,7 +25,9 @@ var errStartupStoreUnsupported = errors.New("startup test store: unsupported ope
 
 type startupSequenceStore struct {
 	records    []*store.StoredRecord
+	leaves     []*store.StoredMerkleLeaf
 	checkpoint *store.StoredCheckpoint
+	listErr    error
 }
 
 func newStartupSequenceStore(records []*store.StoredRecord, checkpoint *store.StoredCheckpoint) *startupSequenceStore {
@@ -37,6 +40,23 @@ func newStartupSequenceStore(records []*store.StoredRecord, checkpoint *store.St
 		return cp[i].SequenceNumber < cp[j].SequenceNumber
 	})
 	return &startupSequenceStore{records: cp, checkpoint: checkpoint}
+}
+
+func startupLeavesFromRecords(records []*store.StoredRecord) []*store.StoredMerkleLeaf {
+	leaves := make([]*store.StoredMerkleLeaf, 0, len(records))
+	for _, rec := range records {
+		leaves = append(leaves, &store.StoredMerkleLeaf{
+			LeafIndex:      rec.MerkleLeafIndex,
+			SequenceNumber: rec.SequenceNumber,
+			RequestID:      rec.RequestID,
+			RecordHash:     rec.RecordHash,
+			LeafHash:       vaolcrypto.BytesToHash(vaolcrypto.MerkleLeafHash([]byte(rec.RecordHash))),
+		})
+	}
+	sort.Slice(leaves, func(i, j int) bool {
+		return leaves[i].LeafIndex < leaves[j].LeafIndex
+	})
+	return leaves
 }
 
 func (s *startupSequenceStore) Append(_ context.Context, _ *store.StoredRecord) (int64, error) {
@@ -72,6 +92,9 @@ func (s *startupSequenceStore) GetLatest(_ context.Context) (*store.StoredRecord
 }
 
 func (s *startupSequenceStore) List(_ context.Context, filter store.ListFilter) ([]*store.StoredRecord, error) {
+	if s.listErr != nil {
+		return nil, s.listErr
+	}
 	limit := filter.Limit
 	if limit <= 0 {
 		limit = 100
@@ -92,6 +115,40 @@ func (s *startupSequenceStore) List(_ context.Context, filter store.ListFilter) 
 
 func (s *startupSequenceStore) Count(_ context.Context) (int64, error) {
 	return int64(len(s.records)), nil
+}
+
+func (s *startupSequenceStore) SaveMerkleLeaf(_ context.Context, leaf *store.StoredMerkleLeaf) error {
+	if leaf == nil {
+		return errStartupStoreUnsupported
+	}
+	dup := *leaf
+	s.leaves = append(s.leaves, &dup)
+	sort.Slice(s.leaves, func(i, j int) bool {
+		return s.leaves[i].LeafIndex < s.leaves[j].LeafIndex
+	})
+	return nil
+}
+
+func (s *startupSequenceStore) ListMerkleLeaves(_ context.Context, cursor int64, limit int) ([]*store.StoredMerkleLeaf, error) {
+	if limit <= 0 {
+		limit = 100
+	}
+	out := make([]*store.StoredMerkleLeaf, 0, limit)
+	for _, leaf := range s.leaves {
+		if leaf.LeafIndex <= cursor {
+			continue
+		}
+		dup := *leaf
+		out = append(out, &dup)
+		if len(out) == limit {
+			break
+		}
+	}
+	return out, nil
+}
+
+func (s *startupSequenceStore) CountMerkleLeaves(_ context.Context) (int64, error) {
+	return int64(len(s.leaves)), nil
 }
 
 func (s *startupSequenceStore) PutEncryptedPayload(_ context.Context, _ *store.EncryptedPayload) error {
@@ -164,6 +221,55 @@ func TestServerStartupRebuildWithNonZeroSequenceNumbers(t *testing.T) {
 		makeStartupStoredRecord(t, 2, mustHashString(t, "record-2"), 1),
 	}
 	st := newStartupSequenceStore(records, nil)
+
+	cfg := api.DefaultConfig()
+	srv := api.NewServer(cfg, st, sig, []signer.Verifier{ver}, merkle.New(), nil, slog.Default())
+	if err := srv.StartupError(); err != nil {
+		t.Fatalf("unexpected startup error: %v", err)
+	}
+
+	assertStartupHealthTreeSize(t, srv, 2)
+}
+
+func TestServerStartupUsesPersistedMerkleLeavesWithoutRecordListing(t *testing.T) {
+	sig, err := signer.GenerateEd25519Signer()
+	if err != nil {
+		t.Fatalf("GenerateEd25519Signer: %v", err)
+	}
+	ver := signer.NewEd25519Verifier(sig.PublicKey())
+
+	records := []*store.StoredRecord{
+		makeStartupStoredRecord(t, 1, mustHashString(t, "leaf-restore-1"), 0),
+		makeStartupStoredRecord(t, 2, mustHashString(t, "leaf-restore-2"), 1),
+	}
+	st := newStartupSequenceStore(records, nil)
+	st.leaves = startupLeavesFromRecords(records)
+	st.listErr = errors.New("record traversal should not be called")
+
+	cfg := api.DefaultConfig()
+	srv := api.NewServer(cfg, st, sig, []signer.Verifier{ver}, merkle.New(), nil, slog.Default())
+	if err := srv.StartupError(); err != nil {
+		t.Fatalf("unexpected startup error: %v", err)
+	}
+
+	assertStartupHealthTreeSize(t, srv, 2)
+}
+
+func TestServerStartupFallsBackToRecordTraversalWhenPersistedLeavesInvalid(t *testing.T) {
+	sig, err := signer.GenerateEd25519Signer()
+	if err != nil {
+		t.Fatalf("GenerateEd25519Signer: %v", err)
+	}
+	ver := signer.NewEd25519Verifier(sig.PublicKey())
+
+	records := []*store.StoredRecord{
+		makeStartupStoredRecord(t, 1, mustHashString(t, "fallback-1"), 0),
+		makeStartupStoredRecord(t, 2, mustHashString(t, "fallback-2"), 1),
+	}
+	st := newStartupSequenceStore(records, nil)
+	st.leaves = startupLeavesFromRecords(records)
+	// Corrupt persisted leaf state to force fallback path.
+	st.leaves = st.leaves[:1]
 
 	cfg := api.DefaultConfig()
 	srv := api.NewServer(cfg, st, sig, []signer.Verifier{ver}, merkle.New(), nil, slog.Default())

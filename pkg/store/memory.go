@@ -15,6 +15,7 @@ type MemoryStore struct {
 	mu           sync.RWMutex
 	records      []*StoredRecord
 	byReqID      map[uuid.UUID]*StoredRecord
+	merkleLeaves []*StoredMerkleLeaf
 	proofs       map[string]*StoredProof
 	checkpoints  []*StoredCheckpoint
 	encrypted    map[uuid.UUID]*EncryptedPayload
@@ -28,6 +29,7 @@ func NewMemoryStore() *MemoryStore {
 	return &MemoryStore{
 		records:      make([]*StoredRecord, 0, 1024),
 		byReqID:      make(map[uuid.UUID]*StoredRecord),
+		merkleLeaves: make([]*StoredMerkleLeaf, 0, 1024),
 		proofs:       make(map[string]*StoredProof),
 		checkpoints:  make([]*StoredCheckpoint, 0, 64),
 		encrypted:    make(map[uuid.UUID]*EncryptedPayload),
@@ -181,6 +183,78 @@ func (m *MemoryStore) GetLatestCheckpoint(_ context.Context) (*StoredCheckpoint,
 
 func (m *MemoryStore) Close() error {
 	return nil
+}
+
+func (m *MemoryStore) SaveMerkleLeaf(_ context.Context, leaf *StoredMerkleLeaf) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if leaf == nil {
+		return fmt.Errorf("leaf is required")
+	}
+	if leaf.RequestID == uuid.Nil {
+		return fmt.Errorf("request_id is required")
+	}
+	if leaf.RecordHash == "" {
+		return fmt.Errorf("record_hash is required")
+	}
+	if leaf.LeafHash == "" {
+		return fmt.Errorf("leaf_hash is required")
+	}
+	if leaf.LeafIndex < 0 {
+		return fmt.Errorf("leaf_index must be non-negative")
+	}
+
+	next := int64(len(m.merkleLeaves))
+	if leaf.LeafIndex > next {
+		return fmt.Errorf("merkle leaf gap: got index %d expected %d", leaf.LeafIndex, next)
+	}
+
+	if leaf.LeafIndex < next {
+		existing := m.merkleLeaves[leaf.LeafIndex]
+		if existing.RequestID == leaf.RequestID &&
+			existing.RecordHash == leaf.RecordHash &&
+			existing.LeafHash == leaf.LeafHash &&
+			existing.SequenceNumber == leaf.SequenceNumber {
+			return nil
+		}
+		return fmt.Errorf("merkle leaf conflict at index %d", leaf.LeafIndex)
+	}
+
+	cp := *leaf
+	if cp.CreatedAt.IsZero() {
+		cp.CreatedAt = time.Now().UTC()
+	}
+	m.merkleLeaves = append(m.merkleLeaves, &cp)
+	return nil
+}
+
+func (m *MemoryStore) ListMerkleLeaves(_ context.Context, cursor int64, limit int) ([]*StoredMerkleLeaf, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	if limit <= 0 {
+		limit = 100
+	}
+
+	out := make([]*StoredMerkleLeaf, 0, limit)
+	for _, leaf := range m.merkleLeaves {
+		if leaf.LeafIndex <= cursor {
+			continue
+		}
+		cp := *leaf
+		out = append(out, &cp)
+		if len(out) >= limit {
+			break
+		}
+	}
+	return out, nil
+}
+
+func (m *MemoryStore) CountMerkleLeaves(_ context.Context) (int64, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return int64(len(m.merkleLeaves)), nil
 }
 
 func (m *MemoryStore) PutEncryptedPayload(_ context.Context, payload *EncryptedPayload) error {

@@ -394,7 +394,7 @@ The MVP includes a `LocalECDSABackend` (ECDSA P-256) for testing the KMS interfa
 
 ### PostgreSQL
 
-PostgreSQL is the primary persistent store. The schema consists of four tables:
+PostgreSQL is the primary persistent store. The core schema includes:
 
 **`decision_records`** -- The core append-only ledger.
 
@@ -422,6 +422,17 @@ Indexed on `(tenant_id, timestamp DESC)` and `(record_hash)`.
 | `signed_checkpoint` | `JSONB NOT NULL` | Signed checkpoint (signature + metadata) |
 | `rekor_entry_id` | `TEXT` | Optional Rekor transparency log entry ID |
 | `created_at` | `TIMESTAMPTZ DEFAULT NOW()` | Checkpoint creation time |
+
+**`merkle_leaves`** -- Persisted Merkle leaf state for startup restoration and anti-tamper validation.
+
+| Column | Type | Description |
+|--------|------|-------------|
+| `leaf_index` | `BIGINT PRIMARY KEY` | Stable RFC 6962 leaf position |
+| `sequence_number` | `BIGINT NOT NULL` | Linked ledger sequence (`decision_records.sequence_number`) |
+| `request_id` | `UUID NOT NULL` | Linked record (`decision_records.request_id`) |
+| `record_hash` | `TEXT NOT NULL` | Stored record hash used as leaf input |
+| `leaf_hash` | `TEXT NOT NULL` | Persisted `SHA-256(0x00 || record_hash)` |
+| `created_at` | `TIMESTAMPTZ DEFAULT NOW()` | Insertion timestamp |
 
 **`encrypted_payloads`** -- Optional table for `age`-encrypted prompt and output blobs plus lifecycle metadata.
 
@@ -457,7 +468,15 @@ An in-memory implementation (`store.MemoryStore`) is provided for development an
 
 ### Merkle Tree State
 
-The Merkle tree is maintained in-memory as an ordered slice of leaf hashes. On server startup with PostgreSQL, leaf hashes are rebuilt from stored `record_hash` values and validated against persisted `merkle_leaf_index` values and the latest signed checkpoint root. The startup check can fail-closed via `fail_on_startup_check=true` (default). The tree supports:
+The Merkle tree is maintained in-memory for hot-path append/proof operations and persisted via `merkle_leaves` for startup restoration. On server startup, VAOL attempts restoration in this order:
+
+1. Load persisted leaf hashes from `merkle_leaves`.
+2. Validate contiguous leaf ordering and deterministic `leaf_hash` binding to `record_hash`.
+3. Validate rebuilt tree size against `decision_records` count.
+4. Validate latest signed checkpoint root/signature/anchor continuity.
+5. If persisted leaf validation fails, fall back to full record traversal rebuild.
+
+The startup check can fail-closed via `fail_on_startup_check=true` (default). The tree supports:
 
 - **Append** -- O(1) amortized leaf addition
 - **Root computation** -- Computed from the leaf array on demand

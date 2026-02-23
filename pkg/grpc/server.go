@@ -374,6 +374,10 @@ func (s *LedgerServer) AppendRecord(ctx context.Context, req *vaolv1.AppendRecor
 		return nil, status.Errorf(codes.Internal, "storing record: %v", err)
 	}
 
+	if leafErr := s.persistMerkleLeaf(ctx, rec.RequestID, seq, leafIndex, recordHash); leafErr != nil {
+		s.logger.Warn("failed to persist Merkle leaf state", "request_id", rec.RequestID.String(), "leaf_index", leafIndex, "error", leafErr)
+	}
+
 	// Persist proof (best-effort)
 	if proofErr := s.store.SaveProof(ctx, &store.StoredProof{
 		ProofID:   proofID,
@@ -393,6 +397,27 @@ func (s *LedgerServer) AppendRecord(ctx context.Context, req *vaolv1.AppendRecor
 		Timestamp:         timestamppb.New(rec.Timestamp),
 		InclusionProofRef: rec.Integrity.InclusionProofRef,
 	}, nil
+}
+
+func (s *LedgerServer) persistMerkleLeaf(
+	ctx context.Context,
+	requestID uuid.UUID,
+	sequenceNumber int64,
+	leafIndex int64,
+	recordHash string,
+) error {
+	leafStore, ok := s.store.(store.MerkleLeafStore)
+	if !ok {
+		return nil
+	}
+	leafHash := vaolcrypto.BytesToHash(vaolcrypto.MerkleLeafHash([]byte(recordHash)))
+	return leafStore.SaveMerkleLeaf(ctx, &store.StoredMerkleLeaf{
+		LeafIndex:      leafIndex,
+		SequenceNumber: sequenceNumber,
+		RequestID:      requestID,
+		RecordHash:     recordHash,
+		LeafHash:       leafHash,
+	})
 }
 
 func (s *LedgerServer) GetRecord(ctx context.Context, req *vaolv1.GetRecordRequest) (*vaolv1.GetRecordResponse, error) {

@@ -236,6 +236,10 @@ func (s *Server) handleAppendRecord(w http.ResponseWriter, r *http.Request) {
 
 	rec.Integrity.SequenceNumber = seq
 
+	if leafErr := s.persistMerkleLeaf(r.Context(), rec.RequestID, seq, leafIndex, recordHash); leafErr != nil {
+		s.logger.Warn("failed to persist Merkle leaf state", "request_id", rec.RequestID.String(), "leaf_index", leafIndex, "error", leafErr)
+	}
+
 	// Persist proof after record append for stores that enforce request_id FK.
 	// If proof persistence fails, the record is still valid and proof can be
 	// reconstructed via /v1/records/{id}/proof and proof-id fallback logic.
@@ -274,6 +278,27 @@ func (s *Server) handleAppendRecord(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("X-VAOL-Record-ID", rec.RequestID.String())
 	w.Header().Set("X-VAOL-Sequence", fmt.Sprintf("%d", seq))
 	writeJSON(w, http.StatusCreated, receipt)
+}
+
+func (s *Server) persistMerkleLeaf(
+	ctx context.Context,
+	requestID uuid.UUID,
+	sequenceNumber int64,
+	leafIndex int64,
+	recordHash string,
+) error {
+	leafStore, ok := s.store.(store.MerkleLeafStore)
+	if !ok {
+		return nil
+	}
+	leafHash := vaolcrypto.BytesToHash(vaolcrypto.MerkleLeafHash([]byte(recordHash)))
+	return leafStore.SaveMerkleLeaf(ctx, &store.StoredMerkleLeaf{
+		LeafIndex:      leafIndex,
+		SequenceNumber: sequenceNumber,
+		RequestID:      requestID,
+		RecordHash:     recordHash,
+		LeafHash:       leafHash,
+	})
 }
 
 func (s *Server) handleGetRecord(w http.ResponseWriter, r *http.Request) {

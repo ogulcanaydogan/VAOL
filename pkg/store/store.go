@@ -41,6 +41,16 @@ type StoredCheckpoint struct {
 	CreatedAt    time.Time          `json:"created_at"`
 }
 
+// StoredMerkleLeaf is a persisted RFC 6962 leaf hash entry.
+type StoredMerkleLeaf struct {
+	LeafIndex      int64     `json:"leaf_index"`
+	SequenceNumber int64     `json:"sequence_number"`
+	RequestID      uuid.UUID `json:"request_id"`
+	RecordHash     string    `json:"record_hash"`
+	LeafHash       string    `json:"leaf_hash"`
+	CreatedAt      time.Time `json:"created_at"`
+}
+
 // EncryptedPayload stores encrypted prompt/output blobs and lifecycle metadata.
 type EncryptedPayload struct {
 	RequestID       uuid.UUID  `json:"request_id"`
@@ -144,6 +154,15 @@ type Store interface {
 
 	// Close releases any resources held by the store.
 	Close() error
+}
+
+// MerkleLeafStore is an optional extension for stores that persist Merkle leaf hashes.
+// When implemented, API startup can restore the in-memory Merkle tree from these
+// persisted leaves without replaying full decision records.
+type MerkleLeafStore interface {
+	SaveMerkleLeaf(ctx context.Context, leaf *StoredMerkleLeaf) error
+	ListMerkleLeaves(ctx context.Context, cursor int64, limit int) ([]*StoredMerkleLeaf, error)
+	CountMerkleLeaves(ctx context.Context) (int64, error)
 }
 
 // ErrNotFound is returned when a record is not found.
