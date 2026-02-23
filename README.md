@@ -7,8 +7,8 @@ Provides tamper-evident audit trails for regulated industries where organization
 [![CI](https://github.com/ogulcanaydogan/Verifiable-AI-Output-Ledger/actions/workflows/ci.yml/badge.svg)](https://github.com/ogulcanaydogan/Verifiable-AI-Output-Ledger/actions/workflows/ci.yml)
 [![Go Report Card](https://goreportcard.com/badge/github.com/ogulcanaydogan/Verifiable-AI-Output-Ledger)](https://goreportcard.com/report/github.com/ogulcanaydogan/Verifiable-AI-Output-Ledger)
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
-[![Go Version](https://img.shields.io/badge/Go-1.21+-00ADD8.svg)](go.mod)
-[![Python SDK](https://img.shields.io/badge/Python_SDK-3.10+-3776AB.svg)](sdk/python)
+[![Go Version](https://img.shields.io/badge/Go-1.24+-00ADD8.svg)](go.mod)
+[![Python SDK](https://img.shields.io/badge/Python_SDK-3.11+-3776AB.svg)](sdk/python)
 [![TypeScript SDK](https://img.shields.io/badge/TypeScript_SDK-5.0+-3178C6.svg)](sdk/typescript)
 
 ---
@@ -165,6 +165,9 @@ make build
 # Run server with in-memory store (development)
 ./bin/vaol-server --addr :8080 --auth-mode disabled --policy-mode allow-all
 
+# Optional: enable gRPC API on a second listener
+./bin/vaol-server --addr :8080 --grpc-addr :9090 --auth-mode disabled --policy-mode allow-all
+
 # Run server with PostgreSQL
 ./bin/vaol-server --addr :8080 --dsn "postgres://vaol:vaol@localhost:5432/vaol"
 
@@ -219,6 +222,10 @@ response = wrapped.chat.completions.create(
 )
 # DecisionRecord automatically emitted with prompt hash,
 # output hash, model identity, and policy context.
+
+# Anthropic and LiteLLM wrappers are also available:
+# vaol.instrument_anthropic(anthropic_client, vaol_client, tenant_id="my-org")
+# vaol.instrument_litellm(vaol_client, tenant_id="my-org")
 ```
 
 ### TypeScript SDK
@@ -439,6 +446,8 @@ export OPENAI_BASE_URL=http://localhost:8443/v1
 | `POST` | `/v1/export` | Export audit bundle |
 | `GET` | `/v1/health` | Health check |
 
+gRPC API is also available through `VAOLLedger` when `--grpc-addr` is enabled. See `proto/vaol/v1/ledger.proto`.
+
 ---
 
 ## Authentication
@@ -479,9 +488,10 @@ vaol/
 │   ├── verifier/            # Composite verification
 │   ├── export/              # Audit bundle creation
 │   ├── crypto/              # SHA-256, age encryption
-│   └── api/                 # REST API server
+│   ├── api/                 # REST API server
+│   └── grpc/                # gRPC API server
 ├── sdk/
-│   ├── python/              # Python SDK with OpenAI instrumentation
+│   ├── python/              # Python SDK with OpenAI/Anthropic/LiteLLM instrumentation
 │   └── typescript/          # TypeScript SDK with OpenAI instrumentation
 ├── policies/                # OPA/Rego example policies
 ├── schemas/v1/              # JSON Schema for DecisionRecord
@@ -513,7 +523,7 @@ vaol/
 
 | Layer | Technology | Purpose |
 |-------|-----------|---------|
-| **Server** | Go 1.21+ | High-performance ledger server |
+| **Server** | Go 1.24+ | High-performance ledger server |
 | **Storage** | PostgreSQL 15 | Persistent record and proof storage |
 | **Policy** | OPA/Rego | Runtime policy evaluation |
 | **Cryptography** | Ed25519, Sigstore, age | Signing and encryption |

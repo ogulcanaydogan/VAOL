@@ -1,6 +1,6 @@
 # VAOL REST API Reference
 
-**Version:** 0.2.11
+**Version:** 0.2.22
 **Base URL:** `http://<host>:8080`
 **Content-Type:** `application/json`
 
@@ -9,6 +9,7 @@
 ## Table of Contents
 
 - [Overview](#overview)
+- [gRPC API](#grpc-api)
 - [Authentication](#authentication)
 - [Common Response Headers](#common-response-headers)
 - [Error Format](#error-format)
@@ -35,6 +36,31 @@
 The VAOL REST API provides an append-only ledger for cryptographically verifiable AI decision records. Every record appended to the ledger receives a DSSE (Dead Simple Signing Envelope) signature, is linked into a SHA-256 hash chain, and is anchored in a Merkle tree with verifiable inclusion proofs.
 
 All timestamps use RFC 3339 format in UTC. All cryptographic hashes use the `sha256:<hex>` prefix format.
+
+## gRPC API
+
+VAOL also provides a gRPC surface (`VAOLLedger`) defined in `proto/vaol/v1/ledger.proto`.
+
+Enable it by starting the server with:
+
+```bash
+./bin/vaol-server --grpc-addr :9090
+```
+
+Tenant context for gRPC requests is provided via metadata key `x-vaol-tenant-id`.
+
+Available RPCs:
+
+- `Health`
+- `AppendRecord`
+- `GetRecord`
+- `ListRecords` (server stream)
+- `GetInclusionProof`
+- `GetProofByID`
+- `GetConsistencyProof`
+- `GetCheckpoint`
+- `VerifyRecord`
+- `ExportBundle` (server stream)
 
 ---
 
@@ -68,7 +94,7 @@ Every response includes the following headers:
 | Header | Description | Example |
 |--------|-------------|---------|
 | `X-Request-ID` | Unique identifier for the request. Echoes the client-supplied `X-Request-ID` header if present; otherwise auto-generated. | `vaol-1708300000000000000` |
-| `X-VAOL-Version` | Server version string. | `0.2.11` |
+| `X-VAOL-Version` | Server version string. | `0.2.22` |
 | `X-VAOL-Record-ID` | The `request_id` (UUID) of the appended record. Present only on `POST /v1/records` responses. | `a1b2c3d4-e5f6-7890-abcd-ef1234567890` |
 | `X-VAOL-Sequence` | The assigned sequence number in the ledger. Present only on `POST /v1/records` responses. | `42` |
 | `Content-Type` | Always `application/json`. | `application/json` |
@@ -747,7 +773,7 @@ GET /v1/health
 ```json
 {
   "status": "ok",
-  "version": "0.2.11",
+  "version": "0.2.22",
   "record_count": 1024,
   "tree_size": 1024
 }

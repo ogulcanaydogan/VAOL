@@ -5,6 +5,23 @@ All notable changes to VAOL will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.22] - 2026-02-23
+
+### Added
+
+- **gRPC ledger server implementation** — Added `pkg/grpc` with full `VAOLLedger` RPC coverage (`Health`, `AppendRecord`, `GetRecord`, `ListRecords`, `GetInclusionProof`, `GetProofByID`, `GetConsistencyProof`, `GetCheckpoint`, `VerifyRecord`, `ExportBundle`) plus protobuf conversion helpers and bufconn integration tests.
+- **Dual-protocol server startup** — `vaol-server` now supports optional gRPC listener startup via `--grpc-addr`, sharing the same store/signer/policy/merkle dependencies as REST.
+- **Python SDK wrappers for Anthropic and LiteLLM** — Added `instrument_anthropic()` and `instrument_litellm()` with dedicated tests and package exports.
+
+### Changed
+
+- **Startup rebuild regression coverage** — Expanded startup rebuild tests to cover sparse/non-zero sequence traversal, checkpoint validation, pagination rebuild behavior, and deterministic mismatch failures.
+- **Release metadata alignment** — Synchronized Python SDK, TypeScript SDK, and Helm chart versions to `0.2.22`.
+
+### Fixed
+
+- **Verifier revocation file wiring** — Added missing `SetRevocationsFromFile()` helper on the verifier to support startup configuration paths.
+
 ## [0.2.11] - 2026-02-22
 
 ### Added
@@ -157,6 +174,7 @@ Initial public release of the Verifiable AI Output Ledger.
 - Startup Merkle rebuild with checkpoint/root validation.
 - Tenant-bound API access with cross-tenant rejection.
 
+[0.2.22]: https://github.com/ogulcanaydogan/Verifiable-AI-Output-Ledger/releases/tag/v0.2.22
 [0.2.11]: https://github.com/ogulcanaydogan/Verifiable-AI-Output-Ledger/releases/tag/v0.2.11
 [0.2.10]: https://github.com/ogulcanaydogan/Verifiable-AI-Output-Ledger/releases/tag/v0.2.10
 [0.2.9]: https://github.com/ogulcanaydogan/Verifiable-AI-Output-Ledger/releases/tag/v0.2.9
