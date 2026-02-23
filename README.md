@@ -102,11 +102,12 @@ graph TD
 | Layer | Verification | Purpose |
 |-------|-------------|---------|
 | **1. Signature** | DSSE envelope signature valid (Ed25519/Sigstore/KMS) | Proves record authenticity |
-| **2. Schema** | DecisionRecord conforms to v1 JSON Schema | Ensures structural integrity |
-| **3. Hash Chain** | `previous_record_hash` matches predecessor | Detects insertion/deletion |
-| **4. Merkle Inclusion** | Inclusion proof valid against tree root | Enables global consistency audit |
+| **2. Key Revocation** | Signature keyid not revoked at signature timestamp (when a revocation list is configured) | Detects compromised signing identities |
+| **3. Schema** | DecisionRecord conforms to v1 JSON Schema | Ensures structural integrity |
+| **4. Hash Chain** | `previous_record_hash` matches predecessor | Detects insertion/deletion |
+| **5. Merkle Inclusion** | Inclusion proof valid against tree root | Enables global consistency audit |
 
-The `vaol verify` CLI command and `/v1/verify` API perform all four checks.
+The `vaol verify` CLI command and `/v1/verify` API perform these checks, with key revocation enforcement enabled when a revocation list is supplied.
 
 ---
 
@@ -368,8 +369,29 @@ For local development only, use `--policy-mode allow-all`.
 # Verify an audit bundle
 ./bin/vaol verify bundle audit-bundle.json \
   --public-key ~/.vaol/keys/vaol-signing.pub \
+  --revocations-file ./revocations.json \
   --transcript-json verification-transcript.json \
   --report-markdown verification-report.md
+
+# Verify a single DSSE record with key revocation enforcement
+./bin/vaol verify record record.json \
+  --public-key ~/.vaol/keys/vaol-signing.pub \
+  --revocations-file ./revocations.json
+
+# Example revocation list format
+cat > revocations.json <<'JSON'
+{
+  "version": "v1",
+  "generated_at": "2026-02-23T00:00:00Z",
+  "revocations": [
+    {
+      "keyid": "ed25519:abc123...",
+      "effective_at": "2026-02-01T00:00:00Z",
+      "reason": "compromised"
+    }
+  ]
+}
+JSON
 
 # Inspect a DSSE envelope
 ./bin/vaol inspect record.json

@@ -105,10 +105,11 @@ The server returns the bundle as a JSON response. Save it to a file for offline 
 
 ```bash
 vaol verify bundle audit-bundle.json \
-  --public-key /path/to/vaol-signing.pub
+  --public-key /path/to/vaol-signing.pub \
+  --revocations-file /path/to/revocations.json
 ```
 
-The `--public-key` flag points to the Ed25519 public key PEM used by the VAOL server that signed the records. If your organization distributes the public key through a key management system, retrieve it from there.
+The `--public-key` flag points to the Ed25519 public key PEM used by the VAOL server that signed the records. If your organization distributes the public key through a key management system, retrieve it from there. The optional `--revocations-file` flag enforces compromised-key deny rules with RFC3339 effective timestamps.
 
 ### What the Verifier Checks
 
@@ -125,6 +126,8 @@ The verifier performs these checks on every record in the bundle:
 5. **Merkle inclusion** -- For each record, the verifier walks the inclusion proof (sibling hashes from leaf to root) and confirms the computed root matches the checkpoint root hash at the stated tree size.
 
 6. **Policy fields present** -- Every record must contain a `policy_context` with at least a `policy_decision` value (`allow`, `deny`, `allow_with_transform`, or `log_only`).
+
+7. **Key revocation enforcement (optional)** -- If a revocation list is supplied, every envelope signature `keyid` must be valid for the signature timestamp. Any key revoked at or before the signature time causes deterministic verification failure.
 
 ### Interpreting the Output
 
@@ -396,8 +399,8 @@ The raw model output is stored directly in the record. This mode should only be 
 | Task                        | Command                                                                 |
 |-----------------------------|-------------------------------------------------------------------------|
 | Export a bundle             | `vaol export --tenant <id> --after <date> --before <date> --output <file>` |
-| Verify a bundle             | `vaol verify bundle <file> --public-key <key.pub>`                      |
-| Verify a single envelope    | `vaol verify record <file> --public-key <key.pub>`                      |
+| Verify a bundle             | `vaol verify bundle <file> --public-key <key.pub> [--revocations-file <revocations.json>]` |
+| Verify a single envelope    | `vaol verify record <file> --public-key <key.pub> [--revocations-file <revocations.json>]` |
 | Inspect a record            | `vaol inspect <envelope-file>`                                          |
 | Generate a signing key pair | `vaol keys generate --output <dir>`                                     |
 

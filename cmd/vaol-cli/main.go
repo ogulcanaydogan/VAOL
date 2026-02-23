@@ -84,6 +84,7 @@ func newVerifyCmd() *cobra.Command {
 func newVerifyBundleCmd() *cobra.Command {
 	var pubKeyPath string
 	var profile string
+	var revocationsFile string
 	var transcriptJSONPath string
 	var reportJSONPath string
 	var reportMarkdownPath string
@@ -110,6 +111,15 @@ func newVerifyBundleCmd() *cobra.Command {
 			}
 
 			v := verifier.New(verifiers...)
+			if revocationsFile != "" {
+				rules, err := verifier.LoadRevocationListFile(revocationsFile)
+				if err != nil {
+					return fmt.Errorf("loading revocations file: %w", err)
+				}
+				if err := v.SetRevocations(rules); err != nil {
+					return fmt.Errorf("applying revocations: %w", err)
+				}
+			}
 
 			selectedProfile := verifier.Profile(profile)
 			if selectedProfile == "" {
@@ -185,6 +195,7 @@ func newVerifyBundleCmd() *cobra.Command {
 	}
 	cmd.Flags().StringVar(&pubKeyPath, "public-key", "", "Ed25519 public key PEM for signature verification")
 	cmd.Flags().StringVar(&profile, "profile", string(verifier.ProfileBasic), "verification profile: basic, strict, fips")
+	cmd.Flags().StringVar(&revocationsFile, "revocations-file", "", "path to revocation list JSON with keyid/effective_at rules")
 	cmd.Flags().StringVar(&transcriptJSONPath, "transcript-json", "", "write deterministic verification transcript to JSON file")
 	cmd.Flags().StringVar(&reportJSONPath, "report-json", "", "write verification report JSON")
 	cmd.Flags().StringVar(&reportMarkdownPath, "report-markdown", "", "write verification report Markdown")
@@ -194,6 +205,7 @@ func newVerifyBundleCmd() *cobra.Command {
 func newVerifyRecordCmd() *cobra.Command {
 	var pubKeyPath string
 	var profile string
+	var revocationsFile string
 	cmd := &cobra.Command{
 		Use:   "record <file>",
 		Short: "Verify a single DSSE envelope",
@@ -219,6 +231,15 @@ func newVerifyRecordCmd() *cobra.Command {
 			}
 
 			v := verifier.New(verifiers...)
+			if revocationsFile != "" {
+				rules, err := verifier.LoadRevocationListFile(revocationsFile)
+				if err != nil {
+					return fmt.Errorf("loading revocations file: %w", err)
+				}
+				if err := v.SetRevocations(rules); err != nil {
+					return fmt.Errorf("applying revocations: %w", err)
+				}
+			}
 			selectedProfile := verifier.Profile(profile)
 			if selectedProfile == "" {
 				selectedProfile = verifier.ProfileBasic
@@ -254,6 +275,7 @@ func newVerifyRecordCmd() *cobra.Command {
 	}
 	cmd.Flags().StringVar(&pubKeyPath, "public-key", "", "Ed25519 public key PEM")
 	cmd.Flags().StringVar(&profile, "profile", string(verifier.ProfileBasic), "verification profile: basic, strict, fips")
+	cmd.Flags().StringVar(&revocationsFile, "revocations-file", "", "path to revocation list JSON with keyid/effective_at rules")
 	return cmd
 }
 
