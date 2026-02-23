@@ -1,6 +1,6 @@
 # VAOL REST API Reference
 
-**Version:** 0.2.24
+**Version:** 0.2.25
 **Base URL:** `http://<host>:8080`
 **Content-Type:** `application/json`
 
@@ -76,6 +76,12 @@ Available RPCs:
 - `VerifyRecord`
 - `ExportBundle` (server stream)
 
+gRPC DSSE compatibility:
+
+- `DSSESignature.rekor_entry_id` is optional and backward-compatible.
+- Strict profile with online Rekor enabled requires `rekor_entry_id` for Sigstore (`fulcio:`) signatures.
+- Older gRPC clients that omit `rekor_entry_id` still work in non-strict or strict-offline flows.
+
 Common gRPC status mapping:
 
 | Status | Meaning |
@@ -116,7 +122,7 @@ Every response includes the following headers:
 | Header | Description | Example |
 |--------|-------------|---------|
 | `X-Request-ID` | Unique identifier for the request. Echoes the client-supplied `X-Request-ID` header if present; otherwise auto-generated. | `vaol-1708300000000000000` |
-| `X-VAOL-Version` | Server version string. | `0.2.24` |
+| `X-VAOL-Version` | Server version string. | `0.2.25` |
 | `X-VAOL-Record-ID` | The `request_id` (UUID) of the appended record. Present only on `POST /v1/records` responses. | `a1b2c3d4-e5f6-7890-abcd-ef1234567890` |
 | `X-VAOL-Sequence` | The assigned sequence number in the ledger. Present only on `POST /v1/records` responses. | `42` |
 | `Content-Type` | Always `application/json`. | `application/json` |
@@ -797,7 +803,7 @@ GET /v1/health
 ```json
 {
   "status": "ok",
-  "version": "0.2.24",
+  "version": "0.2.25",
   "record_count": 1024,
   "tree_size": 1024
 }

@@ -11,7 +11,7 @@ from vaol.record import DecisionRecord, OutputMode, PolicyDecision
 from vaol.verify import VerifyResult, verify_dsse_ed25519, verify_inclusion_proof
 from vaol.wrapper import instrument_openai
 
-__version__ = "0.2.24"
+__version__ = "0.2.25"
 __all__ = [
     "AsyncVAOLClient",
     "DecisionRecord",

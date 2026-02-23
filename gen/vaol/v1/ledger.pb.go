@@ -1137,6 +1137,7 @@ type DSSESignature struct {
 	Sig           string                 `protobuf:"bytes,2,opt,name=sig,proto3" json:"sig,omitempty"`   // base64url-encoded
 	Cert          string                 `protobuf:"bytes,3,opt,name=cert,proto3" json:"cert,omitempty"` // optional: Fulcio certificate (Sigstore keyless)
 	Timestamp     string                 `protobuf:"bytes,4,opt,name=timestamp,proto3" json:"timestamp,omitempty"`
+	RekorEntryId  string                 `protobuf:"bytes,5,opt,name=rekor_entry_id,json=rekorEntryId,proto3" json:"rekor_entry_id,omitempty"` // optional: Rekor transparency log entry ID
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1195,6 +1196,13 @@ func (x *DSSESignature) GetCert() string {
 func (x *DSSESignature) GetTimestamp() string {
 	if x != nil {
 		return x.Timestamp
+	}
+	return ""
+}
+
+func (x *DSSESignature) GetRekorEntryId() string {
+	if x != nil {
+		return x.RekorEntryId
 	}
 	return ""
 }
@@ -1612,12 +1620,13 @@ const file_vaol_v1_ledger_proto_rawDesc = "" +
 	"\apayload\x18\x02 \x01(\tR\apayload\x126\n" +
 	"\n" +
 	"signatures\x18\x03 \x03(\v2\x16.vaol.v1.DSSESignatureR\n" +
-	"signatures\"i\n" +
+	"signatures\"\x8f\x01\n" +
 	"\rDSSESignature\x12\x14\n" +
 	"\x05keyid\x18\x01 \x01(\tR\x05keyid\x12\x10\n" +
 	"\x03sig\x18\x02 \x01(\tR\x03sig\x12\x12\n" +
 	"\x04cert\x18\x03 \x01(\tR\x04cert\x12\x1c\n" +
-	"\ttimestamp\x18\x04 \x01(\tR\ttimestamp\"\xfa\x02\n" +
+	"\ttimestamp\x18\x04 \x01(\tR\ttimestamp\x12$\n" +
+	"\x0erekor_entry_id\x18\x05 \x01(\tR\frekorEntryId\"\xfa\x02\n" +
 	"\x16DecisionRecordEnvelope\x12'\n" +
 	"\x0fsequence_number\x18\x01 \x01(\x03R\x0esequenceNumber\x121\n" +
 	"\benvelope\x18\x02 \x01(\v2\x15.vaol.v1.DSSEEnvelopeR\benvelope\x12\x1f\n" +

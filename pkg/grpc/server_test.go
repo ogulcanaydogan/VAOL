@@ -19,6 +19,7 @@ import (
 	"github.com/google/uuid"
 	vaolv1 "github.com/ogulcanaydogan/vaol/gen/vaol/v1"
 	"github.com/ogulcanaydogan/vaol/pkg/auth"
+	vaolcrypto "github.com/ogulcanaydogan/vaol/pkg/crypto"
 	vaolgrpc "github.com/ogulcanaydogan/vaol/pkg/grpc"
 	"github.com/ogulcanaydogan/vaol/pkg/merkle"
 	"github.com/ogulcanaydogan/vaol/pkg/policy"
@@ -254,10 +255,11 @@ func protoEnvelopeFromGo(env *signer.Envelope) *vaolv1.DSSEEnvelope {
 	}
 	for i, s := range env.Signatures {
 		out.Signatures[i] = &vaolv1.DSSESignature{
-			Keyid:     s.KeyID,
-			Sig:       s.Sig,
-			Cert:      s.Cert,
-			Timestamp: s.Timestamp,
+			Keyid:        s.KeyID,
+			Sig:          s.Sig,
+			Cert:         s.Cert,
+			Timestamp:    s.Timestamp,
+			RekorEntryId: s.RekorEntryID,
 		}
 	}
 	return out
@@ -598,8 +600,8 @@ func TestVerifyRecordStrictOnlineRekorRespectsServerConfig(t *testing.T) {
 	}
 	signedEnv.Signatures[0].KeyID = "fulcio:https://oauth2.sigstore.dev/auth::svc-a"
 	signedEnv.Signatures[0].Cert = "mock-cert"
-	// DSSESignature protobuf does not carry rekor_entry_id; strict online mode
-	// must reject deterministically when missing.
+	// Strict online mode must fail deterministically when a Sigstore signature
+	// omits rekor_entry_id.
 
 	resp, err := env.client.VerifyRecord(ctxWithTenant("test-tenant"), &vaolv1.VerifyRecordRequest{
 		Envelope:            protoEnvelopeFromGo(signedEnv),
@@ -620,6 +622,60 @@ func TestVerifyRecordStrictOnlineRekorRespectsServerConfig(t *testing.T) {
 	}
 	if !found {
 		t.Fatalf("expected strict-online Rekor deterministic error, checks=%+v", resp.Checks)
+	}
+}
+
+func TestVerifyRecordStrictOnlineRekorPassesWithRekorEntryID(t *testing.T) {
+	payloadHash := ""
+	rekorServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet || r.URL.Path != "/api/v1/log/entries/entry-1" {
+			http.NotFound(w, r)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"entry-1": map[string]any{
+				"spec": map[string]any{
+					"payload_hash": payloadHash,
+				},
+			},
+		})
+	}))
+	defer rekorServer.Close()
+
+	strictPolicy := verifier.DefaultStrictPolicy()
+	strictPolicy.OnlineRekor = true
+	strictPolicy.RekorURL = rekorServer.URL
+	strictPolicy.RekorTimeout = 2 * time.Second
+
+	env := newTestEnvWithOptions(t, testEnvOptions{
+		strictPolicy: &strictPolicy,
+	})
+
+	payload := mustBuildStrictPayload(t, "test-tenant", "svc-a")
+	signedEnv, err := signer.SignEnvelope(context.Background(), payload, env.signer)
+	if err != nil {
+		t.Fatalf("SignEnvelope: %v", err)
+	}
+	signedEnv.Signatures[0].KeyID = "fulcio:https://oauth2.sigstore.dev/auth::svc-a"
+	signedEnv.Signatures[0].Cert = "mock-cert"
+	signedEnv.Signatures[0].RekorEntryID = "entry-1"
+
+	decodedPayload, err := signer.ExtractPayload(signedEnv)
+	if err != nil {
+		t.Fatalf("ExtractPayload: %v", err)
+	}
+	payloadHash = vaolcrypto.SHA256Prefixed(signer.PAE(signedEnv.PayloadType, decodedPayload))
+
+	resp, err := env.client.VerifyRecord(ctxWithTenant("test-tenant"), &vaolv1.VerifyRecordRequest{
+		Envelope:            protoEnvelopeFromGo(signedEnv),
+		VerificationProfile: "strict",
+	})
+	if err != nil {
+		t.Fatalf("VerifyRecord: %v", err)
+	}
+	if !resp.Valid {
+		t.Fatalf("expected strict verification pass, error=%q checks=%+v", resp.Error, resp.Checks)
 	}
 }
 

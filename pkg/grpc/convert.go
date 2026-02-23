@@ -24,10 +24,11 @@ func protoEnvelopeToGo(pb *vaolv1.DSSEEnvelope) *signer.Envelope {
 	}
 	for i, s := range pb.Signatures {
 		env.Signatures[i] = signer.Signature{
-			KeyID:     s.Keyid,
-			Sig:       s.Sig,
-			Cert:      s.Cert,
-			Timestamp: s.Timestamp,
+			KeyID:        s.Keyid,
+			Sig:          s.Sig,
+			Cert:         s.Cert,
+			Timestamp:    s.Timestamp,
+			RekorEntryID: s.RekorEntryId,
 		}
 	}
 	return env
@@ -44,10 +45,11 @@ func goEnvelopeToProto(env *signer.Envelope) *vaolv1.DSSEEnvelope {
 	}
 	for i, s := range env.Signatures {
 		pb.Signatures[i] = &vaolv1.DSSESignature{
-			Keyid:     s.KeyID,
-			Sig:       s.Sig,
-			Cert:      s.Cert,
-			Timestamp: s.Timestamp,
+			Keyid:        s.KeyID,
+			Sig:          s.Sig,
+			Cert:         s.Cert,
+			Timestamp:    s.Timestamp,
+			RekorEntryId: s.RekorEntryID,
 		}
 	}
 	return pb

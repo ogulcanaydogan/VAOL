@@ -126,6 +126,8 @@ vaol verify bundle audit-bundle.json \
 
 The same Sigstore flags are supported by `vaol verify record` for single-envelope checks.
 
+For gRPC-submitted envelopes, include `rekor_entry_id` on each Sigstore signature in `DSSEEnvelope.signatures[]` when strict online Rekor verification is enabled. This field is optional and backward-compatible for non-strict workflows.
+
 ### What the Verifier Checks
 
 The verifier performs these checks on every record in the bundle:

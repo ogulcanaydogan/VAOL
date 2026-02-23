@@ -170,6 +170,7 @@ message DSSESignature {
   string sig = 2;      // base64url-encoded
   string cert = 3;     // optional: Fulcio certificate (Sigstore keyless)
   string timestamp = 4;
+  string rekor_entry_id = 5; // optional: Rekor transparency log entry ID
 }
 
 message DecisionRecordEnvelope {

@@ -5,6 +5,23 @@ All notable changes to VAOL will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.25] - 2026-02-23
+
+### Added
+
+- **gRPC DSSE Sigstore metadata parity** — Added optional `rekor_entry_id` to protobuf `DSSESignature` (`proto/vaol/v1/ledger.proto`) and regenerated Go stubs.
+- **gRPC strict-online Rekor success coverage** — Added bufconn integration coverage proving strict-profile online Rekor verification succeeds when Sigstore signatures provide a valid `rekor_entry_id` bound to the DSSE payload hash.
+
+### Changed
+
+- **Proto/Go conversion parity** — `pkg/grpc/convert.go` now round-trips `rekor_entry_id` between protobuf envelopes and internal `signer.Signature` (`RekorEntryID`).
+- **Release metadata alignment** — Synchronized Python SDK, TypeScript SDK, Helm chart, and API reference to version `0.2.25`.
+- **Auditor/API docs parity** — Added explicit guidance that gRPC `DSSESignature.rekor_entry_id` is backward-compatible optional, but required for strict-online Sigstore verification.
+
+### Fixed
+
+- **gRPC strict-online Rekor false-negative path** — gRPC `VerifyRecord` can now pass strict online Rekor checks for Sigstore envelopes that include valid Rekor entry metadata, matching REST/CLI strict behavior.
+
 ## [0.2.24] - 2026-02-23
 
 ### Added
