@@ -39,6 +39,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Helm production controls** — Chart values/schema/template now include writer fencing and optional Merkle snapshot settings.
 - **Threat model and architecture docs** — Updated storage and startup integrity sections to reflect persisted Merkle leaf restoration, validation, and fallback behavior.
 
+## [0.2.27] - 2026-02-23
+
+### Added
+
+- **Writer fencing for single-writer HA** — Added optional PostgreSQL advisory-lock fencing via `store.WriterFenceStore`/`WriterFenceLease` with server runtime flags `--writer-fence-mode` and `--writer-fence-lock-id`.
+- **Conservative Merkle snapshot restore path** — Added packed snapshot codec (`pkg/merkle/snapshot.go`), snapshot store extension (`store.MerkleSnapshotStore`), PostgreSQL snapshot persistence (`merkle_snapshots`), and startup snapshot+tail replay with deterministic fallback.
+- **Audit execution artifacts** — Added audit RFP/SOW/control matrix/remediation templates under `docs/audit/` and evidence packaging helper `scripts/build_audit_pack.sh`.
+- **Release notes** — Added `docs/releases/v0.2.26.md` and `docs/releases/v0.2.27.md`.
+
+### Changed
+
+- **Helm production controls** — Added chart values/schema/template wiring for writer fencing and optional Merkle snapshot persistence.
+- **Operational runbooks** — Updated HA, DR, deployment profile, and external audit readiness docs with writer fencing + snapshot guidance.
+- **Release metadata** — Synchronized Python SDK, TypeScript SDK, Helm chart, and API reference examples to version `0.2.27`.
+
+### Fixed
+
+- **Security scan hardening** — Removed unsafe `uint64 -> int` conversion in snapshot payload decode path to satisfy `gosec` (`G115`) with deterministic bounds checks.
+
 ## [0.2.25] - 2026-02-23
 
 ### Added

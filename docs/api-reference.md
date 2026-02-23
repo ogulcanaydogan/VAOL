@@ -803,7 +803,7 @@ GET /v1/health
 ```json
 {
   "status": "ok",
-  "version": "0.2.25",
+  "version": "0.2.27",
   "record_count": 1024,
   "tree_size": 1024
 }
