@@ -34,7 +34,22 @@ Populate this table before SOW finalization:
 | `<firm-2>` | evaluating | `0.0` |  |  |  |  |
 | `<firm-3>` | evaluating | `0.0` |  |  |  |  |
 
-## 4. Due-Diligence Questions
+## 4. Scoring Worksheet (Deterministic)
+
+Use this formula for each firm:
+
+1. Weighted score:
+   1. `total = (crypto*0.30) + (ledger*0.20) + (regulated*0.20) + (oss*0.15) + (delivery*0.15)`.
+2. Minimum acceptance gates:
+   1. `crypto >= 4.0`
+   2. `ledger >= 4.0`
+   3. proposed timeline <= 8 weeks from kickoff.
+3. Tie-break order:
+   1. higher `crypto`
+   2. higher `ledger`
+   3. lower delivery risk.
+
+## 5. Due-Diligence Questions
 
 1. What cryptographic review methodology is used for signature envelope systems?
 2. Do you provide exploitability-ranked findings and reproducible PoCs?
@@ -42,7 +57,18 @@ Populate this table before SOW finalization:
 4. What retest turnaround is guaranteed for critical/high findings?
 5. Can you provide references for prior open-source security audits?
 
-## 5. Selection Decision Record
+## 6. Selection Timeline and Owners
+
+Record actual dates for traceability:
+
+1. RFP sent date: `<YYYY-MM-DD>`
+2. Q&A close date: `<YYYY-MM-DD>`
+3. Final proposal due date: `<YYYY-MM-DD>`
+4. Selection meeting date: `<YYYY-MM-DD>`
+5. SOW sign date: `<YYYY-MM-DD>`
+6. VAOL owner: `<name>`
+
+## 7. Selection Decision Record
 
 Record final selection here:
 

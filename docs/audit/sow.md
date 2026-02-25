@@ -59,6 +59,12 @@ Auditor shall deliver:
 4. Retest report for remediated findings.
 5. Executive summary suitable for sanitized public disclosure.
 
+Required machine-readable attachments:
+
+1. findings JSON or CSV export with stable finding IDs.
+2. mapping of findings to affected files/commits.
+3. retest status table keyed by finding ID.
+
 ## 6. Severity and SLA
 
 | Severity | Definition | Remediation target |
@@ -81,3 +87,24 @@ Engagement is complete only when:
 1. Weekly status checkpoint during active assessment.
 2. Daily updates while critical findings remain open.
 3. Final readout meeting with remediation sign-off.
+
+## 9. Milestones and Exit Events
+
+Record and track these mandatory milestones:
+
+1. Kickoff complete: `<YYYY-MM-DD>`
+2. Evidence package handoff complete: `<YYYY-MM-DD>`
+3. Initial findings report delivered: `<YYYY-MM-DD>`
+4. Critical remediation complete: `<YYYY-MM-DD>`
+5. High remediation plan accepted: `<YYYY-MM-DD>`
+6. Retest complete: `<YYYY-MM-DD>`
+7. Public remediation report published: `<YYYY-MM-DD>`
+
+## 10. Required VAOL Evidence Bundle for Auditor
+
+At handoff, include:
+
+1. `VAOL_AUDIT_RUN_MATRIX=1 ./scripts/build_audit_pack.sh` archive output.
+2. Latest release notes (`v0.2.28` and onward).
+3. Startup restore benchmark artifact (`startup-restore-bench.txt`) showing pass status.
+4. Auditor demo artifacts from CI and local transcript bundle.

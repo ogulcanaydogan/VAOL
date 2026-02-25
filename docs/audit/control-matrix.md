@@ -50,3 +50,25 @@ Track auditor findings and remediation status:
 | Finding ID | Severity | Affected Control | Status | Owner | Target Date | Retest Evidence |
 |---|---|---|---|---|---|---|
 | `<id>` | `<sev>` | `<control>` | open | `<owner>` | `<YYYY-MM-DD>` | `<link/path>` |
+
+## 7. Evidence Collection Commands
+
+Run and archive these commands for each audit cycle:
+
+1. Full audit evidence package:
+
+```bash
+VAOL_AUDIT_RUN_MATRIX=1 ./scripts/build_audit_pack.sh
+```
+
+2. Startup restore benchmark gate:
+
+```bash
+./scripts/check_startup_restore_bench.sh
+```
+
+3. Auditor reproducibility scenario:
+
+```bash
+./scripts/demo_auditor.sh
+```

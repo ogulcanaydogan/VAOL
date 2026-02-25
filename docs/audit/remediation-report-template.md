@@ -26,7 +26,8 @@ For each resolved finding:
 2. Severity: `<Critical|High|Medium|Low>`
 3. Summary: `<short description>`
 4. Fix commit(s): `<hashes>`
-5. Retest evidence: `<artifact link/path>`
+5. Linked issue(s): `<#issue>`
+6. Retest evidence: `<artifact link/path>`
 
 ## 4. Planned Remediation (Open Findings)
 
@@ -38,6 +39,8 @@ For accepted but not-yet-resolved findings:
 4. Planned fix release: `<version>`
 5. Target date: `<YYYY-MM-DD>`
 6. Owner: `<name/team>`
+7. Linked issue(s): `<#issue>`
+8. Risk acceptance approver (if applicable): `<name>`
 
 ## 5. Verification Evidence Bundle
 
@@ -47,6 +50,7 @@ Include links to:
 2. Auditor demo transcript and tamper-fail evidence.
 3. Bundle verification transcript (`strict` profile).
 4. SBOM/provenance artifacts.
+5. Startup restore benchmark gate output (`startup-restore-bench.txt`).
 
 ## 6. Integrity Statement
 

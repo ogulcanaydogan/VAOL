@@ -73,6 +73,7 @@ if [[ "${RUN_MATRIX}" == "1" ]]; then
   run_cmd "go-test-race-e2e-tamper" go test -race ./tests/e2e ./tests/tamper -v
   run_cmd "python-checks" /bin/zsh -lc "cd sdk/python && ruff check vaol/ && mypy vaol/ && pytest tests/ -v"
   run_cmd "typescript-checks" /bin/zsh -lc "cd sdk/typescript && npm ci && npm run lint && npm test"
+  run_cmd "startup-restore-benchmark" ./scripts/check_startup_restore_bench.sh "${ARTIFACT_DIR}/startup-restore-bench.txt"
   run_cmd "demo-auditor" ./scripts/demo_auditor.sh
   run_cmd "docker-build-server" docker build -f deploy/docker/Dockerfile.server -t vaol-server:ci .
   run_cmd "docker-build-proxy" docker build -f deploy/docker/Dockerfile.proxy -t vaol-proxy:ci .
